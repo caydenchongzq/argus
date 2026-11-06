@@ -42,6 +42,13 @@ function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+function looksNumeric(text) {
+  const t = String(text || "").replace(/\s+/g, " ").trim();
+  if (!t || t === "—" || t === "-" || t === "–") return false;
+  return /^[+\u2212−-]?(?:US)?\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?%?$/.test(t)
+    || /^[+\u2212−-]?\d+(?:\.\d+)?%?$/.test(t);
+}
+
 function renderMarkdown(el, md) {
   if (!md) {
     el.innerHTML = "<p class='ar-muted'>No markdown report</p>";
@@ -52,6 +59,17 @@ function renderMarkdown(el, md) {
     return;
   }
   el.innerHTML = DOMPurify.sanitize(marked.parse(md), { USE_PROFILES: { html: true } });
+  el.querySelectorAll("table").forEach((table) => {
+    const wrap = document.createElement("div");
+    wrap.className = "ar-md-table";
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+    table.querySelectorAll("th, td").forEach((cell) => {
+      const text = (cell.textContent || "").replace(/\s+/g, " ").trim();
+      if (looksNumeric(text)) cell.classList.add("ar-num");
+      else if (cell.tagName === "TD" && text.length > 48) cell.classList.add("ar-md-prose");
+    });
+  });
 }
 
 function groupThousands(digits) {
@@ -300,6 +318,10 @@ async function loadPortfolio() {
     <article class="ar-stat ar-span-3"><span class="ar-stat__label">Positions</span><span class="ar-stat__value">${data.positions.length}</span><span class="ar-stat__delta"><span class="ar-subtle">Currency ${esc(data.currency || "USD")}</span></span></article>
   `;
 
+  const subLabel = {};
+  (data.ai_subthemes || []).forEach((b) => {
+    if (b && b.id) subLabel[b.id] = b.label || b.id;
+  });
   const tb = $("#pfTable tbody");
   tb.innerHTML = data.positions.map((p) => {
     const rowChange = moneyChange(p.unrealized_pnl);
@@ -311,7 +333,7 @@ async function loadPortfolio() {
     return `<tr class="${stale}">
       <td class="ar-ticker">${esc(p.ticker)}</td>
       <td class="ar-subtle">${esc(p.name || "")}</td>
-      <td class="ar-subtle">${esc(p.sub_theme || "")}</td>
+      <td class="ar-subtle">${esc(p.sub_theme ? (subLabel[p.sub_theme] || p.sub_theme) : "")}</td>
       <td class="ar-num">${qty(p.quantity)}</td>
       <td class="ar-num">${price(p.average_price)}</td>
       <td class="ar-num">${price(p.price)}</td>

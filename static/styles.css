@@ -89,8 +89,33 @@
 .ar-md h3 { font-size: var(--argus-text-h3); line-height: var(--argus-leading-h3); font-weight: var(--argus-weight-semibold); }
 .ar-md p { margin: 0 0 var(--argus-space-3); }
 .ar-md a { color: var(--argus-brand-text); }
-.ar-md table { width: 100%; border-collapse: collapse; }
-.ar-md th, .ar-md td { padding: var(--argus-space-2); border-bottom: 1px solid var(--argus-border); text-align: left; }
+.ar-md-table {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 0 0 var(--argus-space-3);
+  border: 1px solid var(--argus-border);
+  border-radius: var(--argus-radius-md);
+  background: var(--argus-surface);
+}
+.ar-md table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.ar-md th, .ar-md td {
+  padding: var(--argus-space-2);
+  border-bottom: 1px solid var(--argus-border);
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.ar-md td.ar-num, .ar-md th.ar-num { text-align: right; white-space: nowrap; }
+.ar-md td.ar-md-prose {
+  white-space: normal;
+  min-width: 16rem;
+  max-width: 28rem;
+}
 .ar-md code, .ar-md pre { font-family: var(--argus-font-mono); font-size: var(--argus-text-code); }
 .ar-md code {
   background: var(--argus-surface);
