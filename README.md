@@ -39,6 +39,7 @@ $env:TRADINGAGENTS_ROOT = "D:\path\to\TradingAgents"
 | **Watchlist** | View / add / remove candidates; writes `data\watchlist.json` with timestamped `.bak` copies. Candidates are grouped by AI sub-theme |
 | **Reports** | List by ticker/date, rendered Markdown, latest rating highlighted |
 | **Fund manager** | Latest plan. Trades come from `final` / `final_check` (the add-on does not write a `decision` key). History includes timestamped run folders |
+| **Themes** | Latest theme-scout report and the free daily screen. Run buttons use the confirm token. The Sol call is off unless the checkbox is set |
 | **Runs** | Selective runs. Cost warning is ~2.5 min/ticker plus 5 fund-manager calls (Opus for conservative, Luna for neutral). POST `/api/runs` needs `confirm: true` and the `X-Argus-Confirm` token from `GET /api/session`. Requests whose Host is not localhost / 127.0.0.1 are rejected |
 
 ## Layout

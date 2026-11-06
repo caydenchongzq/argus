@@ -13,6 +13,7 @@ const state = {
   flags: {},
   selectedReport: null,
   selectedRun: null,
+  pendingTheme: null,
   logOffset: 0,
   logTimer: null,
   chart: null,
@@ -81,6 +82,7 @@ function setTab(name) {
   if (name === "watchlist") loadWatchlist();
   if (name === "reports") loadReports();
   if (name === "fund") loadFund();
+  if (name === "themes") loadThemes();
   if (name === "runs") loadRuns();
 }
 
@@ -503,6 +505,7 @@ $("#btnStartRun").addEventListener("click", () => {
   if (body.no_llm && !body.run_agents) est = "under ~1 min, free";
   else if (body.run_agents) est = `~${Math.round(n * 2.5)} min + model fees, then 5 fund-manager calls`;
   else est = "~9 min, 5 model calls (Opus for conservative, Luna for neutral)";
+  state.pendingTheme = null;
   state.pendingRun = body;
   $("#confirmText").textContent = `Start this run? Estimate: ${est}. Tickers: ${body.tickers.length ? body.tickers.join(", ") : "(default / none)"}.`;
   $("#confirmModal").classList.remove("hidden");
@@ -510,13 +513,23 @@ $("#btnStartRun").addEventListener("click", () => {
 
 $("#confirmCancel").addEventListener("click", () => {
   state.pendingRun = null;
+  state.pendingTheme = null;
   $("#confirmModal").classList.add("hidden");
 });
 
 $("#confirmGo").addEventListener("click", async () => {
-  const body = { ...state.pendingRun, confirm: true };
+  const theme = state.pendingTheme;
+  const body = theme ? { ...theme, confirm: true } : { ...state.pendingRun, confirm: true };
   $("#confirmModal").classList.add("hidden");
   try {
+    if (theme) {
+      state.pendingTheme = null;
+      const res = await api("/api/theme-scout", { method: "POST", body: JSON.stringify(body) });
+      setTab("runs");
+      await loadRuns();
+      if (res.run?.id) selectRun(res.run.id);
+      return;
+    }
     const res = await api("/api/runs", { method: "POST", body: JSON.stringify(body) });
     state.pendingRun = null;
     await loadRuns();
@@ -525,6 +538,53 @@ $("#confirmGo").addEventListener("click", async () => {
     alert(e.message);
   }
 });
+
+/* ---------- themes ---------- */
+async function loadThemes() {
+  const data = await api("/api/theme-scout");
+  $("#themeAsOf").textContent = data.date ? data.date : "no report yet";
+  $("#themeSub").textContent = data.model_skipped === false
+    ? "Weekly scout included the Sol call"
+    : "Latest pack did not call a model";
+  const screen = data.screen || [];
+  $("#themeScreen tbody").innerHTML = screen.slice(0, 40).map((r) => `<tr>
+    <td class="num">${r.rank ?? ""}</td>
+    <td class="mono"><strong>${esc(r.ticker || "")}</strong></td>
+    <td class="num">${r.score ?? ""}</td>
+    <td class="num">${r.rs_1m ?? ""}</td>
+    <td class="num">${r.dist_ma50 ?? ""}</td>
+    <td class="num">${r.atr_pct ?? ""}</td>
+    <td class="num">${r.earnings_days ?? ""}</td>
+  </tr>`).join("") || `<tr><td colspan="7" class="muted">No screen yet</td></tr>`;
+  const rs = data.relative_strength || [];
+  $("#themeRs tbody").innerHTML = rs.map((r) => `<tr>
+    <td>${esc(r.id || "")}</td>
+    <td class="num">${r.rs_1w ?? ""}</td>
+    <td class="num">${r.rs_1m ?? ""}</td>
+    <td class="num">${r.rs_3m ?? ""}</td>
+  </tr>`).join("") || `<tr><td colspan="4" class="muted">Run a weekly pack to fill this</td></tr>`;
+  const changes = data.changes || [];
+  $("#themeChanges").innerHTML = changes.length
+    ? changes.map((c) => `<div>${esc(c.action || "")} <span class="mono">${esc(c.ticker || "")}</span> ${esc(c.reason || "")}</div>`).join("")
+    : "No watchlist edits in this pack.";
+  renderMarkdown($("#themeMd"), data.markdown || "_No theme-scout report yet._");
+}
+
+function queueThemeRun(mode) {
+  const includeLlm = mode === "weekly" && $("#optScoutLlm").checked;
+  state.pendingRun = null;
+  state.pendingTheme = { mode, include_llm: includeLlm, confirm: false };
+  const est = mode === "screen"
+    ? "Daily screen is free and does not edit the watchlist. A few minutes of price and earnings lookups."
+    : (includeLlm
+      ? "Weekly scout: one Sol call, about $0.10–$0.30, then a watchlist backup and update."
+      : "Weekly pack without the Sol call. Free. The watchlist is not edited.");
+  $("#confirmText").textContent = est;
+  $("#confirmModal").classList.remove("hidden");
+}
+
+$("#btnScreen").addEventListener("click", () => queueThemeRun("screen"));
+$("#btnScout").addEventListener("click", () => queueThemeRun("weekly"));
 
 /* ---------- boot ---------- */
 (async function boot() {

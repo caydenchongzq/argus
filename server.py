@@ -80,7 +80,7 @@ app.add_middleware(_LocalHostMiddleware)
 def _require_confirm_token(request: Request) -> None:
     got = request.headers.get("x-argus-confirm") or ""
     if len(got) != len(CONFIRM_TOKEN) or not secrets.compare_digest(got, CONFIRM_TOKEN):
-        raise HTTPException(401, "POST /api/runs requires the X-Argus-Confirm token from GET /api/session")
+        raise HTTPException(401, "This action requires the X-Argus-Confirm token from GET /api/session")
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +332,12 @@ class WatchlistAdd(BaseModel):
     sector: str = "Other"
     type: str = Field(default="stock", pattern="^(stock|etf)$")
     sub_theme: str = ""
+
+
+class ScoutRequest(BaseModel):
+    mode: str = "screen"  # screen | weekly
+    include_llm: bool = False
+    confirm: bool = False
 
 
 class RunRequest(BaseModel):
@@ -786,6 +792,80 @@ def runs_log_stream(run_id: str, from_byte: int = Query(0, ge=0)):
     meta = _load_run(run_id)
     done = meta.get("status") in ("succeeded", "failed")
     return {"offset": len(data), "chunk": chunk, "done": done, "status": meta.get("status")}
+
+
+SCOUT_SCRIPT = TA_ROOT / "addons" / "theme_scout" / "run_theme_scout.ps1"
+SCOUT_DIR = DATA / "theme_scout"
+
+
+def _latest_theme_scout() -> dict:
+    if not SCOUT_DIR.exists():
+        return {"report": None, "screen": None, "markdown": "", "date": None}
+    dates = sorted([p for p in SCOUT_DIR.iterdir() if p.is_dir()], key=lambda p: p.name, reverse=True)
+    chosen = None
+    for folder in dates:
+        if (folder / "report.json").exists() or (folder / "screen.json").exists():
+            chosen = folder
+            break
+    if chosen is None:
+        return {"report": None, "screen": None, "markdown": "", "date": None}
+    report = _read_json(chosen / "report.json") if (chosen / "report.json").exists() else None
+    screen = _read_json(chosen / "screen.json") if (chosen / "screen.json").exists() else None
+    md_path = chosen / "report.md"
+    if not md_path.exists():
+        md_path = chosen / "screen.md"
+    markdown = md_path.read_text(encoding="utf-8", errors="replace") if md_path.exists() else ""
+    return {
+        "date": chosen.name,
+        "report": report,
+        "screen": screen.get("ranked") if isinstance(screen, dict) else None,
+        "tier_candidates": (screen or {}).get("tier_candidates") if isinstance(screen, dict) else None,
+        "markdown": markdown,
+        "relative_strength": (report or {}).get("relative_strength") if isinstance(report, dict) else None,
+        "changes": (report or {}).get("changes") if isinstance(report, dict) else None,
+        "model_skipped": (report or {}).get("model_skipped") if isinstance(report, dict) else True,
+    }
+
+
+@app.get("/api/theme-scout")
+def theme_scout_view():
+    return _latest_theme_scout()
+
+
+@app.post("/api/theme-scout")
+def theme_scout_run(body: ScoutRequest, request: Request):
+    _require_confirm_token(request)
+    if not body.confirm:
+        raise HTTPException(400, "Set confirm=true after acknowledging the screen or the weekly Sol call")
+    if body.mode not in ("screen", "weekly"):
+        raise HTTPException(400, "mode must be screen or weekly")
+    if not SCOUT_SCRIPT.exists():
+        raise HTTPException(500, f"Theme scout script missing: {SCOUT_SCRIPT}")
+    args = ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(SCOUT_SCRIPT)]
+    if body.mode == "screen":
+        args.append("-Screen")
+    elif not body.include_llm:
+        args.append("-NoLLM")
+    est_min = 3 if body.mode == "screen" or not body.include_llm else 6
+    rid = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
+    meta = {
+        "id": rid,
+        "status": "queued",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": None,
+        "exit_code": None,
+        "pid": None,
+        "args": args,
+        "options": body.model_dump(),
+        "estimate_minutes": est_min,
+        "ticker_count": 0,
+        "kind": "theme_scout",
+    }
+    (RUNS_DIR / rid).mkdir(parents=True, exist_ok=True)
+    _save_run(meta)
+    _run_log_path(rid).write_text("", encoding="utf-8")
+    threading.Thread(target=_spawn_run, args=(meta, args), daemon=True).start()
+    return {"run": meta}
 
 
 @app.post("/api/runs")

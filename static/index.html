@@ -26,6 +26,7 @@
         <button data-tab="watchlist"><span class="ico">◎</span> Watchlist</button>
         <button data-tab="reports"><span class="ico">☰</span> Reports</button>
         <button data-tab="fund"><span class="ico">◉</span> Fund manager</button>
+        <button data-tab="themes"><span class="ico">✶</span> Themes</button>
         <button data-tab="runs"><span class="ico">▶</span> Runs</button>
       </nav>
       <div class="sidebar-foot">
@@ -176,6 +177,58 @@
         <div class="panel">
           <h3>Full report</h3>
           <div class="md" id="fmMd"></div>
+        </div>
+      </section>
+
+      <!-- THEMES -->
+      <section id="tab-themes" class="tab hidden">
+        <div class="topbar">
+          <div>
+            <h2>Theme scout</h2>
+            <div class="sub" id="themeSub">Weekly stance and the free daily screen</div>
+          </div>
+          <div class="badge"><span class="dot"></span> <span id="themeAsOf">—</span></div>
+        </div>
+        <div class="panel">
+          <div class="row" style="margin-bottom:12px">
+            <button class="btn primary" id="btnScreen">Run daily screen</button>
+            <button class="btn" id="btnScout">Weekly scout…</button>
+          </div>
+          <label class="chk"><input type="checkbox" id="optScoutLlm" /> Include the Sol call (about $0.10–$0.30). Leave this off for a free pack that does not edit the watchlist.</label>
+          <div class="warn-box" id="themeWarn">The daily screen is free. The weekly Sol call is the paid step, and it can add or drop watchlist names after a backup.</div>
+        </div>
+        <div class="panel">
+          <h3>Screen</h3>
+          <div style="overflow:auto">
+            <table id="themeScreen">
+              <thead>
+                <tr>
+                  <th class="num">Rank</th><th>Ticker</th><th class="num">Score</th>
+                  <th class="num">RS 1m</th><th class="num">MA50</th><th class="num">ATR %</th><th class="num">Earnings</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="grid-2-eq">
+          <div class="panel">
+            <h3>Relative strength vs SPY</h3>
+            <div style="overflow:auto">
+              <table id="themeRs">
+                <thead><tr><th>Group</th><th class="num">1w</th><th class="num">1m</th><th class="num">3m</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Watchlist changes</h3>
+            <div id="themeChanges" class="muted">—</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Report</h3>
+          <div class="md" id="themeMd"><p class="muted">No theme-scout report yet.</p></div>
         </div>
       </section>
 
