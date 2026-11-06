@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Argus — TradingAgents Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div>
+          <h1>Argus</h1>
+          <p>TradingAgents desk</p>
+        </div>
+      </div>
+      <nav class="nav" id="nav">
+        <button data-tab="portfolio" class="active"><span class="ico">◈</span> Portfolio</button>
+        <button data-tab="watchlist"><span class="ico">◎</span> Watchlist</button>
+        <button data-tab="reports"><span class="ico">☰</span> Reports</button>
+        <button data-tab="fund"><span class="ico">◉</span> Fund manager</button>
+        <button data-tab="runs"><span class="ico">▶</span> Runs</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="pill" id="healthPill">checking…</div>
+        <div>Local only · 127.0.0.1<br/>Decision support, not advice.</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- PORTFOLIO -->
+      <section id="tab-portfolio" class="tab">
+        <div class="topbar">
+          <div>
+            <h2>Portfolio</h2>
+            <div class="sub" id="pfSub">Holdings, weights vs targets</div>
+          </div>
+          <div class="badge"><span class="dot"></span> <span id="pfAsOf">—</span></div>
+        </div>
+        <div class="cards" id="pfCards"></div>
+        <div class="grid-2">
+          <div class="panel">
+            <h3>Holdings</h3>
+            <div style="overflow:auto">
+              <table id="pfTable">
+                <thead>
+                  <tr>
+                    <th>Ticker</th><th>Name</th>
+                    <th class="num">Qty</th><th class="num">Avg</th><th class="num">Price</th>
+                    <th class="num">Value</th><th class="num">P&amp;L</th>
+                    <th class="num">Weight</th><th class="num">Target</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Current vs target</h3>
+            <div class="chart-wrap"><canvas id="weightsChart"></canvas></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- WATCHLIST -->
+      <section id="tab-watchlist" class="tab hidden">
+        <div class="topbar">
+          <div>
+            <h2>Watchlist</h2>
+            <div class="sub">Candidates outside the book — edits <span class="mono">data/watchlist.json</span> (with backup)</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="row" style="margin-bottom:14px">
+            <input class="input" id="wlTicker" placeholder="Ticker" style="width:120px" />
+            <input class="input" id="wlSector" placeholder="Sector" style="width:180px" />
+            <select class="select" id="wlType"><option value="stock">stock</option><option value="etf">etf</option></select>
+            <button class="btn primary" id="wlAdd">Add</button>
+          </div>
+          <div id="wlErr" class="err-box hidden"></div>
+          <table id="wlTable">
+            <thead><tr><th>Ticker</th><th>Sector</th><th>Type</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- REPORTS -->
+      <section id="tab-reports" class="tab hidden">
+        <div class="topbar">
+          <div>
+            <h2>Reports</h2>
+            <div class="sub">Per-stock TradingAgents runs</div>
+          </div>
+          <select class="select" id="repFilter"><option value="">All tickers</option></select>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <h3>History</h3>
+            <div class="list" id="repList"></div>
+          </div>
+          <div class="panel">
+            <h3 id="repTitle">Select a report</h3>
+            <div id="repMeta" class="muted" style="margin-bottom:10px"></div>
+            <div class="md" id="repMd"><p class="muted">Pick a report on the left.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FUND -->
+      <section id="tab-fund" class="tab hidden">
+        <div class="topbar">
+          <div>
+            <h2>Fund manager</h2>
+            <div class="sub" id="fmSub">Whole-portfolio plan</div>
+          </div>
+          <select class="select" id="fmDate"></select>
+        </div>
+        <div class="panel">
+          <h3>Trades</h3>
+          <div style="overflow:auto">
+            <table id="fmTrades">
+              <thead>
+                <tr>
+                  <th>Ticker</th><th>Action</th><th class="num">Shares</th>
+                  <th class="num">Est. price</th><th>Agent</th><th>vs agent</th><th>Rationale</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="grid-2-eq">
+          <div class="panel">
+            <h3>Decision summary</h3>
+            <div id="fmSummary" class="muted">—</div>
+          </div>
+          <div class="panel">
+            <h3>Run history</h3>
+            <div class="list" id="fmHistory"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Full report</h3>
+          <div class="md" id="fmMd"></div>
+        </div>
+      </section>
+
+      <!-- RUNS -->
+      <section id="tab-runs" class="tab hidden">
+        <div class="topbar">
+          <div>
+            <h2>Runs</h2>
+            <div class="sub">Trigger fund manager / selective agent runs (costs money when models run)</div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <h3>New run</h3>
+            <div class="row" style="margin-bottom:10px">
+              <label class="chk"><input type="checkbox" id="optRunAgents" /> Run agents first (-RunAgents)</label>
+              <label class="chk"><input type="checkbox" id="optNoLLM" /> Snapshot only (-NoLLM, free)</label>
+              <label class="chk"><input type="checkbox" id="optRisk" /> Include risk notes</label>
+              <label class="chk"><input type="checkbox" id="optNoMacro" /> No macro</label>
+              <label class="chk hidden" id="optWlWrap"><input type="checkbox" id="optWatchlist" /> Include watchlist</label>
+            </div>
+            <div class="row" style="margin-bottom:12px">
+              <label class="muted">Analysis date <input class="input" id="optDate" type="date" /></label>
+              <label class="muted">Since <input class="input" id="optSince" type="date" /></label>
+            </div>
+            <h3 style="font-size:.95rem">Tickers (empty = all book positions when agents run)</h3>
+            <div class="row" style="margin-bottom:8px">
+              <button class="btn sm" id="selBook">Select book</button>
+              <button class="btn sm" id="selWatch">Select watchlist</button>
+              <button class="btn sm" id="selNone">Clear</button>
+              <button class="btn sm" id="selEtfs">Sector ETFs only</button>
+            </div>
+            <div class="ticker-grid" id="tickerGrid"></div>
+            <div class="warn-box" id="runWarn">
+              Full agent analysis is ~7 minutes per ticker plus model fees. Confirm before starting.
+            </div>
+            <div class="row" style="margin-top:12px">
+              <button class="btn primary" id="btnStartRun">Start run…</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Past runs</h3>
+            <div class="list" id="runList"></div>
+            <h3 style="margin-top:16px">Log</h3>
+            <div class="log" id="runLog">Select a run to tail its log.</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop hidden" id="confirmModal">
+    <div class="modal">
+      <h3>Confirm run</h3>
+      <p class="muted" id="confirmText"></p>
+      <div class="warn-box">This can call paid models via OpenRouter. Argus never shows your API keys.</div>
+      <div class="row" style="justify-content:flex-end; margin-top:14px">
+        <button class="btn" id="confirmCancel">Cancel</button>
+        <button class="btn primary" id="confirmGo">Confirm &amp; start</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
