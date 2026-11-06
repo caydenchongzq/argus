@@ -24,6 +24,9 @@
   .sc-matrix { display: grid; grid-template-columns: 84px repeat(6, minmax(0, 1fr)); gap: 8px; align-items: center; }
   .sc-matrix .ar-caption { text-align: left; }
   .sc-matrix > button { justify-self: start; }
+  .sc-acts { display: flex; flex-wrap: wrap; gap: 16px 28px; }
+  .sc-act { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+  .sc-act .ar-btn--sm { margin-top: 2px; }
   .sc-matrix .sc-rowlab { text-align: left; }
   .sc-type { display: grid; grid-template-columns: 150px 1fr 190px; gap: 6px 16px; align-items: baseline; }
   .sc-swatch-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
@@ -39,29 +42,7 @@
 </style>
 </head>
 <body class="ar-body">
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <!-- Lucide icons (ISC licence), 24px grid, stroke 2 -->
-  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
-  <symbol id="i-trending-up" viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></symbol>
-  <symbol id="i-trending-down" viewBox="0 0 24 24"><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></symbol>
-  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
-  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
-  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
-  <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
-  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
-  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
-  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
-  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
-  <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></symbol>
-  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
-  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
-  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
-  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
-  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
-  <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
-  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
-  <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
-</svg>
+<!-- Icons: vendored Lucide v1.70.0 (assets/icons/lucide.min.js, ISC). <i data-lucide="name"> is replaced with inline SVG on load. -->
 
 <div class="ar-shell">
   <!-- App shell header -->
@@ -82,9 +63,9 @@
     <span class="ar-header__meta">Data as of US close · Fri 6 Nov · 05:00 MYT</span>
     <div class="ar-header__actions">
       <div class="ar-segmented" role="group" aria-label="Theme" id="theme-toggle">
-        <button type="button" data-theme-set="light" aria-pressed="false"><svg class="ar-icon ar-icon--sm"><use href="#i-sun"/></svg>Light</button>
-        <button type="button" data-theme-set="dark" aria-pressed="false"><svg class="ar-icon ar-icon--sm"><use href="#i-moon"/></svg>Dark</button>
-        <button type="button" data-theme-set="system" aria-pressed="false"><svg class="ar-icon ar-icon--sm"><use href="#i-monitor"/></svg>Auto</button>
+        <button type="button" data-theme-set="light" aria-pressed="false"><i class="ar-icon ar-icon--sm" data-lucide="sun"></i>Light</button>
+        <button type="button" data-theme-set="dark" aria-pressed="false"><i class="ar-icon ar-icon--sm" data-lucide="moon"></i>Dark</button>
+        <button type="button" data-theme-set="system" aria-pressed="false"><i class="ar-icon ar-icon--sm" data-lucide="monitor"></i>Auto</button>
       </div>
       <div class="ar-segmented" role="group" aria-label="Density" id="density-toggle">
         <button type="button" data-density-set="comfortable" aria-pressed="false">Comfortable</button>
@@ -100,8 +81,8 @@
         <p class="ar-muted" style="margin:4px 0 0">Phase 2 · tokens.css + components.css · Chart A emerald · v2.0 (7 Nov 2026)</p>
       </div>
       <div class="ar-row">
-        <button class="ar-btn"><svg class="ar-icon"><use href="#i-download"/></svg>Export CSV</button>
-        <button class="ar-btn ar-btn--primary"><svg class="ar-icon"><use href="#i-play"/></svg>Run free screen</button>
+        <button class="ar-btn"><i class="ar-btn__icon" data-lucide="download"></i>Export</button>
+        <button class="ar-btn ar-btn--primary"><i class="ar-btn__icon" data-lucide="play"></i>Run screen</button>
       </div>
     </div>
 
@@ -118,7 +99,7 @@
         <span class="ar-stat__delta"><span class="ar-delta ar-delta--gain">+16.71% <span class="ar-delta__arrow">▲</span></span> <span class="ar-subtle">since cost</span></span>
       </div>
       <div class="ar-stat ar-span-3">
-        <span class="ar-stat__label">Cash <span class="ar-info-dot is-open" data-tooltip="Includes the notional $5,000 top-up" tabindex="0">i</span></span>
+        <span class="ar-stat__label">Cash <span class="ar-info-dot" data-tooltip="Includes the notional $5,000 top-up" tabindex="0">i</span></span>
         <span class="ar-stat__value">$15,478.42</span>
         <span class="ar-stat__delta"><span class="ar-delta ar-delta--flat">32.1% of book <span class="ar-delta__arrow">■</span></span></span>
       </div>
@@ -136,8 +117,8 @@
         <div class="ar-card__header">
           <h2 class="ar-card__title">Holdings</h2>
           <div class="ar-row">
-            <div class="ar-input-group" style="width:200px"><svg class="ar-icon"><use href="#i-search"/></svg><input class="ar-input ar-input--sm" placeholder="Filter tickers"></div>
-            <button class="ar-btn ar-btn--sm ar-btn--ghost"><svg class="ar-icon"><use href="#i-refresh"/></svg>Refresh</button>
+            <div class="ar-input-group" style="width:200px"><i class="ar-icon" data-lucide="search"></i><input class="ar-input ar-input--sm" placeholder="Filter tickers"></div>
+            <button class="ar-btn ar-btn--sm ar-btn--ghost is-open" aria-label="Refresh prices" data-tooltip="Refresh prices"><i class="ar-btn__icon" data-lucide="refresh-cw"></i></button><button class="ar-btn ar-btn--sm ar-btn--ghost" aria-label="Export holdings" data-tooltip="Export"><i class="ar-btn__icon" data-lucide="download"></i></button>
           </div>
         </div>
         <div class="ar-card__body ar-table-wrap" style="--ar-table-max-h: 330px">
@@ -169,37 +150,36 @@
 
       <!-- Right column: alerts, toasts -->
       <div class="ar-span-4 ar-stack">
-        <div class="ar-alert ar-alert--warn" role="status"><svg class="ar-icon"><use href="#i-alert"/></svg><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">NVDA earnings in 5 days</p>Position is 24.9% of book; consider a tighter stop before the print.</div></div>
-        <div class="ar-alert ar-alert--info"><svg class="ar-icon"><use href="#i-info"/></svg><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">Saturday full rerun</p>Scheduled for 05:30 MYT after the US close.</div></div>
-        <div class="ar-alert ar-alert--danger" role="alert"><svg class="ar-icon"><use href="#i-x-circle"/></svg><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">Price file empty</p>Yahoo returned no close for 5 Nov. Refetching.<div class="ar-alert__actions"><button class="ar-btn ar-btn--sm">Retry now</button><button class="ar-btn ar-btn--sm ar-btn--ghost">View log</button></div></div></div>
-        <div class="ar-alert ar-alert--ok"><svg class="ar-icon"><use href="#i-check-circle"/></svg><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">Screen complete</p>51 tickers ranked in 58 s. No paid calls.</div></div>
+        <div class="ar-alert ar-alert--warn" role="status"><i class="ar-icon" data-lucide="triangle-alert"></i><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">NVDA earnings in 5 days</p>Position is 24.9% of book; consider a tighter stop before the print.</div></div>
+        <div class="ar-alert ar-alert--info"><i class="ar-icon" data-lucide="info"></i><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">Saturday full rerun</p>Scheduled for 05:30 MYT after the US close.</div></div>
+        <div class="ar-alert ar-alert--danger" role="alert"><i class="ar-icon" data-lucide="circle-x"></i><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">Price file empty</p>Yahoo returned no close for 5 Nov. Refetching.<div class="ar-alert__actions"><button class="ar-btn"><i class="ar-btn__icon" data-lucide="refresh-cw"></i>Retry</button><button class="ar-btn ar-btn--ghost">View log</button></div></div></div>
+        <div class="ar-alert ar-alert--ok"><i class="ar-icon" data-lucide="circle-check"></i><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">Screen complete</p>51 tickers ranked in 58 s. No paid calls.</div></div>
         <div class="ar-toast-stack ar-toast-stack--static" aria-live="polite">
-          <div class="ar-toast ar-toast--ok"><svg class="ar-icon"><use href="#i-check-circle"/></svg><div class="ar-toast__body"><div class="ar-toast__title">Book updated</div><div class="ar-toast__text">my_book.json saved · backup created</div></div><button class="ar-btn ar-btn--ghost ar-btn--icon ar-btn--sm" aria-label="Dismiss"><svg class="ar-icon"><use href="#i-x"/></svg></button></div>
+          <div class="ar-toast ar-toast--ok"><i class="ar-icon" data-lucide="circle-check"></i><div class="ar-toast__body"><div class="ar-toast__title">Book updated</div><div class="ar-toast__text">my_book.json saved · backup created</div></div><button class="ar-btn ar-btn--ghost ar-btn--sm" aria-label="Dismiss" data-tooltip="Dismiss"><i class="ar-btn__icon" data-lucide="x"></i></button></div>
         </div>
       </div>
     </div>
 
     <!-- Buttons -->
     <section class="ar-card sc-section">
-      <div class="ar-card__header"><h2 class="ar-card__title">Buttons</h2><span class="ar-caption">Variants × states · sizes sm 26 / md 32 / lg 38 (compact 24 / 28 / 34)</span></div>
-      <div class="ar-card__body ar-stack">
+      <div class="ar-card__header"><h2 class="ar-card__title">Buttons</h2><span class="ar-caption">min-width md 96 / lg 120 · sm = icon-only square with tooltip · icons 14 / 16 / 18 · Lucide 1.70.0</span></div>
+      <div class="ar-card__body ar-stack" style="gap:20px">
         <div class="sc-matrix">
           <span></span><span class="ar-caption">default</span><span class="ar-caption">hover</span><span class="ar-caption">active</span><span class="ar-caption">focus</span><span class="ar-caption">disabled</span><span class="ar-caption">loading</span>
-          <span class="ar-caption sc-rowlab">primary</span>
-          <button class="ar-btn ar-btn--primary">Run analysis</button><button class="ar-btn ar-btn--primary is-hover">Run analysis</button><button class="ar-btn ar-btn--primary is-active">Run analysis</button><button class="ar-btn ar-btn--primary is-focus">Run analysis</button><button class="ar-btn ar-btn--primary" disabled>Run analysis</button><button class="ar-btn ar-btn--primary" aria-busy="true">Running…</button>
-          <span class="ar-caption sc-rowlab">secondary</span>
-          <button class="ar-btn">Export</button><button class="ar-btn is-hover">Export</button><button class="ar-btn is-active">Export</button><button class="ar-btn is-focus">Export</button><button class="ar-btn" disabled>Export</button><button class="ar-btn" aria-busy="true">Exporting…</button>
-          <span class="ar-caption sc-rowlab">ghost</span>
-          <button class="ar-btn ar-btn--ghost">Details</button><button class="ar-btn ar-btn--ghost is-hover">Details</button><button class="ar-btn ar-btn--ghost is-active">Details</button><button class="ar-btn ar-btn--ghost is-focus">Details</button><button class="ar-btn ar-btn--ghost" disabled>Details</button><button class="ar-btn ar-btn--ghost" aria-busy="true">Loading…</button>
-          <span class="ar-caption sc-rowlab">danger</span>
-          <button class="ar-btn ar-btn--danger">Delete run</button><button class="ar-btn ar-btn--danger is-hover">Delete run</button><button class="ar-btn ar-btn--danger is-active">Delete run</button><button class="ar-btn ar-btn--danger is-focus">Delete run</button><button class="ar-btn ar-btn--danger" disabled>Delete run</button><button class="ar-btn ar-btn--danger" aria-busy="true">Deleting…</button>
+          <span class="ar-caption sc-rowlab">primary</span><button class="ar-btn ar-btn--primary"><i class="ar-btn__icon" data-lucide="play"></i>Run</button><button class="ar-btn ar-btn--primary is-hover"><i class="ar-btn__icon" data-lucide="play"></i>Run</button><button class="ar-btn ar-btn--primary is-active"><i class="ar-btn__icon" data-lucide="play"></i>Run</button><button class="ar-btn ar-btn--primary is-focus"><i class="ar-btn__icon" data-lucide="play"></i>Run</button><button class="ar-btn ar-btn--primary" disabled><i class="ar-btn__icon" data-lucide="play"></i>Run</button><button class="ar-btn ar-btn--primary" aria-busy="true"><i class="ar-btn__icon" data-lucide="play"></i>Run</button><span class="ar-caption sc-rowlab">secondary</span><button class="ar-btn"><i class="ar-btn__icon" data-lucide="download"></i>Export</button><button class="ar-btn is-hover"><i class="ar-btn__icon" data-lucide="download"></i>Export</button><button class="ar-btn is-active"><i class="ar-btn__icon" data-lucide="download"></i>Export</button><button class="ar-btn is-focus"><i class="ar-btn__icon" data-lucide="download"></i>Export</button><button class="ar-btn" disabled><i class="ar-btn__icon" data-lucide="download"></i>Export</button><button class="ar-btn" aria-busy="true"><i class="ar-btn__icon" data-lucide="download"></i>Export</button><span class="ar-caption sc-rowlab">ghost</span><button class="ar-btn ar-btn--ghost"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn ar-btn--ghost is-hover"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn ar-btn--ghost is-active"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn ar-btn--ghost is-focus"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn ar-btn--ghost" disabled><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn ar-btn--ghost" aria-busy="true"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><span class="ar-caption sc-rowlab">danger</span><button class="ar-btn ar-btn--danger"><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete</button><button class="ar-btn ar-btn--danger is-hover"><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete</button><button class="ar-btn ar-btn--danger is-active"><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete</button><button class="ar-btn ar-btn--danger is-focus"><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete</button><button class="ar-btn ar-btn--danger" disabled><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete</button><button class="ar-btn ar-btn--danger" aria-busy="true"><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete</button>
         </div>
-        <div class="ar-row">
-          <button class="ar-btn ar-btn--primary ar-btn--sm">Small</button><button class="ar-btn ar-btn--primary">Medium</button><button class="ar-btn ar-btn--primary ar-btn--lg">Large</button>
-          <button class="ar-btn ar-btn--sm"><svg class="ar-icon"><use href="#i-download"/></svg>With icon</button>
-          <button class="ar-btn ar-btn--icon" aria-label="Refresh" data-tooltip="Refresh prices"><svg class="ar-icon"><use href="#i-refresh"/></svg></button>
-          <button class="ar-btn ar-btn--ghost ar-btn--icon" aria-label="Delete"><svg class="ar-icon"><use href="#i-trash"/></svg></button>
-          <span class="ar-caption">Inline spinner</span><span class="ar-spinner" role="status" aria-label="Loading"></span>
+        <hr class="ar-divider">
+        <div class="sc-matrix">
+          <span></span><span class="ar-caption">sm · icon-only</span><span class="ar-caption">sm · loading</span><span class="ar-caption">md · icon + label</span><span class="ar-caption">lg · icon + label</span><span class="ar-caption">lg · loading</span><span class="ar-caption">md · trailing icon</span>
+          <span class="ar-caption sc-rowlab">primary</span><button class="ar-btn ar-btn--primary ar-btn--sm" aria-label="Run" data-tooltip="Run"><i class="ar-btn__icon" data-lucide="play"></i><span class="ar-btn__label">Run</span></button><button class="ar-btn ar-btn--primary ar-btn--sm" aria-label="Run" data-tooltip="Run" aria-busy="true"><i class="ar-btn__icon" data-lucide="play"></i><span class="ar-btn__label">Run</span></button><button class="ar-btn ar-btn--primary"><i class="ar-btn__icon" data-lucide="play"></i>Run</button><button class="ar-btn ar-btn--primary ar-btn--lg"><i class="ar-btn__icon" data-lucide="play"></i>Run</button><button class="ar-btn ar-btn--primary ar-btn--lg" aria-busy="true"><i class="ar-btn__icon" data-lucide="play"></i>Run</button><button class="ar-btn ar-btn--primary"><i class="ar-btn__icon" data-lucide="play"></i>Run<i class="ar-btn__icon ar-btn__icon--trailing" data-lucide="chevron-down"></i></button><span class="ar-caption sc-rowlab">secondary</span><button class="ar-btn ar-btn--sm" aria-label="Export" data-tooltip="Export"><i class="ar-btn__icon" data-lucide="download"></i><span class="ar-btn__label">Export</span></button><button class="ar-btn ar-btn--sm" aria-label="Export" data-tooltip="Export" aria-busy="true"><i class="ar-btn__icon" data-lucide="download"></i><span class="ar-btn__label">Export</span></button><button class="ar-btn"><i class="ar-btn__icon" data-lucide="download"></i>Export</button><button class="ar-btn ar-btn--lg"><i class="ar-btn__icon" data-lucide="download"></i>Export</button><button class="ar-btn ar-btn--lg" aria-busy="true"><i class="ar-btn__icon" data-lucide="download"></i>Export</button><button class="ar-btn"><i class="ar-btn__icon" data-lucide="download"></i>Export<i class="ar-btn__icon ar-btn__icon--trailing" data-lucide="chevron-down"></i></button><span class="ar-caption sc-rowlab">ghost</span><button class="ar-btn ar-btn--ghost ar-btn--sm" aria-label="Cancel" data-tooltip="Cancel"><i class="ar-btn__icon" data-lucide="x"></i><span class="ar-btn__label">Cancel</span></button><button class="ar-btn ar-btn--ghost ar-btn--sm" aria-label="Cancel" data-tooltip="Cancel" aria-busy="true"><i class="ar-btn__icon" data-lucide="x"></i><span class="ar-btn__label">Cancel</span></button><button class="ar-btn ar-btn--ghost"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn ar-btn--ghost ar-btn--lg"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn ar-btn--ghost ar-btn--lg" aria-busy="true"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn ar-btn--ghost"><i class="ar-btn__icon" data-lucide="x"></i>Cancel<i class="ar-btn__icon ar-btn__icon--trailing" data-lucide="chevron-down"></i></button><span class="ar-caption sc-rowlab">danger</span><button class="ar-btn ar-btn--danger ar-btn--sm" aria-label="Delete" data-tooltip="Delete"><i class="ar-btn__icon" data-lucide="trash-2"></i><span class="ar-btn__label">Delete</span></button><button class="ar-btn ar-btn--danger ar-btn--sm" aria-label="Delete" data-tooltip="Delete" aria-busy="true"><i class="ar-btn__icon" data-lucide="trash-2"></i><span class="ar-btn__label">Delete</span></button><button class="ar-btn ar-btn--danger"><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete</button><button class="ar-btn ar-btn--danger ar-btn--lg"><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete</button><button class="ar-btn ar-btn--danger ar-btn--lg" aria-busy="true"><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete</button><button class="ar-btn ar-btn--danger"><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete<i class="ar-btn__icon ar-btn__icon--trailing" data-lucide="chevron-down"></i></button>
+        </div>
+        <hr class="ar-divider">
+        <div><p class="ar-h4" style="margin-bottom:10px">Recommended action icons</p><div class="sc-acts"><div class="sc-act"><span class="ar-caption"><code>play</code></span><button class="ar-btn ar-btn--primary"><i class="ar-btn__icon" data-lucide="play"></i>Run</button><button class="ar-btn ar-btn--primary ar-btn--sm" aria-label="Run" data-tooltip="Run"><i class="ar-btn__icon" data-lucide="play"></i><span class="ar-btn__label">Run</span></button></div><div class="sc-act"><span class="ar-caption"><code>refresh-cw</code></span><button class="ar-btn"><i class="ar-btn__icon" data-lucide="refresh-cw"></i>Refresh</button><button class="ar-btn ar-btn--sm" aria-label="Refresh" data-tooltip="Refresh"><i class="ar-btn__icon" data-lucide="refresh-cw"></i><span class="ar-btn__label">Refresh</span></button></div><div class="sc-act"><span class="ar-caption"><code>check</code></span><button class="ar-btn ar-btn--primary"><i class="ar-btn__icon" data-lucide="check"></i>Confirm</button><button class="ar-btn ar-btn--primary ar-btn--sm" aria-label="Confirm" data-tooltip="Confirm"><i class="ar-btn__icon" data-lucide="check"></i><span class="ar-btn__label">Confirm</span></button></div><div class="sc-act"><span class="ar-caption"><code>x</code></span><button class="ar-btn ar-btn--ghost"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn ar-btn--ghost ar-btn--sm" aria-label="Cancel" data-tooltip="Cancel"><i class="ar-btn__icon" data-lucide="x"></i><span class="ar-btn__label">Cancel</span></button></div><div class="sc-act"><span class="ar-caption"><code>trash-2</code></span><button class="ar-btn ar-btn--danger"><i class="ar-btn__icon" data-lucide="trash-2"></i>Delete</button><button class="ar-btn ar-btn--danger ar-btn--sm" aria-label="Delete" data-tooltip="Delete"><i class="ar-btn__icon" data-lucide="trash-2"></i><span class="ar-btn__label">Delete</span></button></div><div class="sc-act"><span class="ar-caption"><code>download</code></span><button class="ar-btn"><i class="ar-btn__icon" data-lucide="download"></i>Export</button><button class="ar-btn ar-btn--sm" aria-label="Export" data-tooltip="Export"><i class="ar-btn__icon" data-lucide="download"></i><span class="ar-btn__label">Export</span></button></div><div class="sc-act"><span class="ar-caption"><code>settings</code></span><button class="ar-btn"><i class="ar-btn__icon" data-lucide="settings"></i>Settings</button><button class="ar-btn ar-btn--sm" aria-label="Settings" data-tooltip="Settings"><i class="ar-btn__icon" data-lucide="settings"></i><span class="ar-btn__label">Settings</span></button></div></div></div>
+        <hr class="ar-divider">
+        <div class="ar-row" style="gap:24px;align-items:flex-start">
+          <div class="ar-stack" style="gap:6px"><span class="ar-caption">.ar-btn-group--equal (widest wins)</span><div class="ar-btn-group ar-btn-group--equal"><button class="ar-btn ar-btn--ghost"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn"><i class="ar-btn__icon" data-lucide="download"></i>Export CSV</button><button class="ar-btn ar-btn--primary"><i class="ar-btn__icon" data-lucide="play"></i>Run full analysis</button></div></div>
+          <div class="ar-stack" style="gap:6px;width:280px"><span class="ar-caption">.ar-btn--block (panels, dialogs on narrow)</span><button class="ar-btn ar-btn--primary ar-btn--block"><i class="ar-btn__icon" data-lucide="check"></i>Confirm plan</button><button class="ar-btn ar-btn--block"><i class="ar-btn__icon" data-lucide="settings"></i>Settings</button></div>
+          <div class="ar-stack" style="gap:6px"><span class="ar-caption">Inline spinner</span><span class="ar-spinner" role="status" aria-label="Loading"></span></div>
         </div>
       </div>
     </section>
@@ -221,7 +201,7 @@
             <label class="ar-field"><span class="ar-label">Limit price</span><div class="ar-input-group"><input class="ar-input ar-input--num" value="181.60" style="padding-right:40px"><span class="ar-input-group__suffix">USD</span></div></label>
             <label class="ar-field"><span class="ar-label">Run type</span><select class="ar-select"><option>Tiered (holdings + top 8)</option><option>Full</option><option>Free screen</option></select></label>
             <label class="ar-field"><span class="ar-label">Model</span><select class="ar-select" disabled><option>Sol (deep)</option></select></label>
-            <label class="ar-field"><span class="ar-label">Search</span><div class="ar-input-group"><svg class="ar-icon"><use href="#i-search"/></svg><input class="ar-input" placeholder="Search…"></div></label>
+            <label class="ar-field"><span class="ar-label">Search</span><div class="ar-input-group"><i class="ar-icon" data-lucide="search"></i><input class="ar-input" placeholder="Search…"></div></label>
           </div>
           <div class="ar-row" style="gap:20px">
             <label class="ar-check"><input type="checkbox" checked> Include ETFs</label>
@@ -248,7 +228,7 @@
           <div class="ar-row"><span class="ar-caption" style="width:56px">Ratings</span><span class="ar-rating ar-rating--buy">Buy</span><span class="ar-rating ar-rating--overweight">Overweight</span><span class="ar-rating ar-rating--hold">Hold</span><span class="ar-rating ar-rating--underweight">Underweight</span><span class="ar-rating ar-rating--sell">Sell</span></div>
           <div class="ar-row"><span class="ar-caption" style="width:56px">Status</span><span class="ar-badge ar-badge--info"><span class="ar-badge__dot"></span>Live</span><span class="ar-badge ar-badge--warn">⚠ Stale</span><span class="ar-badge ar-badge--ok">✓ Done</span><span class="ar-badge ar-badge--danger">✕ Failed</span><span class="ar-badge ar-badge--neutral">Queued</span><span class="ar-badge ar-badge--accent">AI · memory</span></div>
           <div class="ar-row"><span class="ar-caption" style="width:56px">Deltas</span><span class="ar-delta ar-delta--gain">+2.41% ▲</span><span class="ar-delta ar-delta--loss">−1.87% ▼</span><span class="ar-delta ar-delta--flat">0.00% ■</span><span class="ar-delta ar-delta--gain">+$1,204.50</span><span class="ar-delta ar-delta--loss">−$86.10</span></div>
-          <div class="ar-row" style="padding-top:64px"><span class="ar-caption" style="width:56px">Tooltip</span><button class="ar-btn ar-btn--sm is-open" data-tooltip="Stop = min(2.5 × ATR below price, 20-day low)">Stop rule</button><span class="ar-caption">Shortcut <kbd class="ar-kbd">R</kbd> run · <kbd class="ar-kbd">/</kbd> search</span></div>
+          <div class="ar-row" style="padding-top:64px"><span class="ar-caption" style="width:56px">Tooltip</span><button class="ar-btn is-open" data-tooltip="Stop = min(2.5 × ATR below price, 20-day low)"><i class="ar-btn__icon" data-lucide="info"></i>Stop rule</button><span class="ar-caption">Shortcut <kbd class="ar-kbd">R</kbd> run · <kbd class="ar-kbd">/</kbd> search</span></div>
         </div>
       </section>
     </div>
@@ -260,12 +240,12 @@
         <div class="ar-card__body">
           <div class="sc-dialog-stage">
             <div class="ar-dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-t">
-              <div class="ar-dialog__header"><div class="ar-dialog__icon"><svg class="ar-icon"><use href="#i-wallet"/></svg></div><div><h3 class="ar-dialog__title" id="dlg-t">Start a paid tiered run?</h3><span class="ar-caption">Uses OpenRouter credits. Can't be undone once started.</span></div></div>
+              <div class="ar-dialog__header"><div class="ar-dialog__icon"><i class="ar-icon" data-lucide="wallet"></i></div><div><h3 class="ar-dialog__title" id="dlg-t">Start a paid tiered run?</h3><span class="ar-caption">Uses OpenRouter credits. Can't be undone once started.</span></div></div>
               <div class="ar-dialog__body">
                 <dl class="ar-dialog__summary"><dt>Tickers</dt><dd>12 holdings + top 8</dd><dt>Models</dt><dd>Luna · Sol · Opus (risk)</dd><dt>Estimated cost</dt><dd>≈ $3.40</dd><dt>Market</dt><dd>Closed · data as of 6 Nov</dd></dl>
                 <label class="ar-check"><input type="checkbox" checked> I understand this run costs money</label>
               </div>
-              <div class="ar-dialog__actions"><button class="ar-btn ar-btn--ghost">Cancel</button><button class="ar-btn ar-btn--primary is-focus">Start paid run</button></div>
+              <div class="ar-dialog__actions"><div class="ar-btn-group ar-btn-group--equal"><button class="ar-btn ar-btn--ghost"><i class="ar-btn__icon" data-lucide="x"></i>Cancel</button><button class="ar-btn ar-btn--primary is-focus"><i class="ar-btn__icon" data-lucide="play"></i>Start paid run</button></div></div>
             </div>
           </div>
         </div>
@@ -293,10 +273,10 @@
       <section class="ar-card ar-span-4">
         <div class="ar-card__header"><h2 class="ar-card__title">Empty state</h2></div>
         <div class="ar-card__body ar-empty">
-          <div class="ar-empty__icon"><svg class="ar-icon ar-icon--lg"><use href="#i-inbox"/></svg></div>
+          <div class="ar-empty__icon"><i class="ar-icon ar-icon--lg" data-lucide="inbox"></i></div>
           <p class="ar-empty__title">No trades in this plan</p>
           <p class="ar-empty__text">The fund manager kept every position. Run the Saturday rerun to refresh.</p>
-          <button class="ar-btn ar-btn--sm">View last plan</button>
+          <button class="ar-btn"><i class="ar-btn__icon" data-lucide="eye"></i>View plan</button>
         </div>
       </section>
       <section class="ar-card ar-span-4">
@@ -309,10 +289,10 @@
         </div>
       </section>
       <section class="ar-card ar-span-4">
-        <div class="ar-card__header"><h2 class="ar-card__title">Icons · Lucide</h2><span class="ar-caption">16 px UI · stroke 2 · currentColor</span></div>
+        <div class="ar-card__header"><h2 class="ar-card__title">Icons · Lucide</h2><span class="ar-caption">Lucide 1.70.0 · 16 px · stroke 2</span></div>
         <div class="ar-card__body sc-icons">
-          <figure><svg class="ar-icon"><use href="#i-search"/></svg>search</figure><figure><svg class="ar-icon"><use href="#i-refresh"/></svg>refresh-cw</figure><figure><svg class="ar-icon"><use href="#i-play"/></svg>play</figure><figure><svg class="ar-icon"><use href="#i-download"/></svg>download</figure>
-          <figure><svg class="ar-icon"><use href="#i-alert"/></svg>triangle-alert</figure><figure><svg class="ar-icon"><use href="#i-info"/></svg>info</figure><figure><svg class="ar-icon"><use href="#i-check-circle"/></svg>circle-check</figure><figure><svg class="ar-icon"><use href="#i-eye"/></svg>eye</figure>
+          <figure><i class="ar-icon" data-lucide="search"></i>search</figure><figure><i class="ar-icon" data-lucide="refresh-cw"></i>refresh-cw</figure><figure><i class="ar-icon" data-lucide="play"></i>play</figure><figure><i class="ar-icon" data-lucide="download"></i>download</figure>
+          <figure><i class="ar-icon" data-lucide="triangle-alert"></i>triangle-alert</figure><figure><i class="ar-icon" data-lucide="info"></i>info</figure><figure><i class="ar-icon" data-lucide="circle-check"></i>circle-check</figure><figure><i class="ar-icon" data-lucide="eye"></i>eye</figure>
         </div>
       </section>
     </div>
@@ -360,7 +340,9 @@
   </main>
 </div>
 
+<script src="assets/icons/lucide.min.js"></script>
 <script>
+  lucide.createIcons();
   (function () {
     var d = document.documentElement;
     document.getElementById("ind").indeterminate = true;

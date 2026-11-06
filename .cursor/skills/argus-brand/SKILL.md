@@ -18,6 +18,7 @@ Argus is a single-user, data-dense swing-trading dashboard (Portfolio, Watchlist
 | `tokens.css` | All design tokens (`--argus-*`): colours for both themes + colour-blind palette (palette v1.1, unchanged), plus phase-2 foundations: fonts, type scale, spacing, radii, borders, shadows, motion, z-index, layout, density. |
 | `components.css` | Component classes (`.ar-*`), built only on tokens. Load after tokens.css. |
 | `showcase.html` | Living reference of every component, with theme (Light/Dark/Auto) and density toggles. `?theme=light&density=compact` URL params. |
+| `assets/icons/` | Vendored **Lucide v1.70.0** (ISC, `LICENSE`, `VERSION.txt`): `argus-icons.svg` sprite of the icons Argus uses (preferred, ~9KB) and the full `lucide.min.js` (481KB) for prototyping/`data-lucide`. No CDN. |
 | `fonts/` | Self-hosted Inter + JetBrains Mono variable woff2 (Latin subset, SIL OFL 1.1, licences included). Loaded by tokens.css. |
 | `palette.json` | Source of truth for every colour (tokens.css is generated from it), incl. computed contrast for every pair. |
 | `PALETTE.md` | Colour families, roles and rules (one page). |
@@ -161,7 +162,7 @@ Weights: 400 regular, 500 medium, 600 semibold (headings, buttons, key numbers),
 ### Components (all in `components.css`)
 | Component | Classes | Rules |
 |---|---|---|
-| Button | `.ar-btn` + `--primary` / (secondary default) / `--ghost` / `--danger`; `--sm` / `--lg` / `--icon` / `--block` | One primary per view. Loading = `aria-busy="true"` (spinner + label like "Running…", click blocked). Icon-only buttons need `aria-label` + tooltip. Danger for destructive only; paid runs use primary inside a confirm dialog. |
+| Button | `.ar-btn` + `--primary` / (secondary default) / `--ghost` / `--danger`; sizes `--sm` / md (default) / `--lg`; `--icon`, `--block`; `.ar-btn__icon` (`--trailing`), `.ar-btn__label`; `.ar-btn-group`, `--equal` | See **Buttons** below. |
 | Input / select | `.ar-field` > `.ar-label` + `.ar-input` / `.ar-select` + `.ar-hint` / `.ar-error`; `.ar-input-group` for icon/suffix; `.ar-input--num` | Label always visible (no placeholder-only labels). Invalid = `aria-invalid="true"` + `.ar-error` text. |
 | Checkbox / switch | `.ar-check`, `.ar-switch` (`role="switch"`) | Checkbox for selection/consent, switch for settings that apply immediately. |
 | Segmented / theme toggle | `.ar-segmented` with `button[aria-pressed]` | Theme: Light / Dark / Auto(system), stored as `argus-theme`; default Dark. |
@@ -177,7 +178,40 @@ Weights: 400 regular, 500 medium, 600 semibold (headings, buttons, key numbers),
 | Tooltip | `[data-tooltip="…"]` (+ `tabindex="0"` on non-buttons), `.ar-info-dot` | Supplementary info only (never the only place a value lives). 300ms delay, inverted colours. |
 | Code / log | `.ar-code` (`tok-key|str|num|com`), `.ar-log` > `.ar-log__line--info|warn|error|ok` with `__ts`, `__lvl`, `__msg` | Logs always dark (terminal style) in both themes; timestamps 24h. Never print secrets/API keys. |
 | Empty / loading | `.ar-empty` (`__icon`, `__title`, `__text` + one action), `.ar-skeleton--text|value|row`, `.ar-spinner` | Empty states explain why and offer one next step. Skeletons mimic final layout; spinners only for < 2s or inline. |
-| Icons | `.ar-icon` (`--sm` 14, `--lg` 20) on inline `<svg>` | **Lucide** (ISC licence), stroke 2 (1.75 at 20px), `currentColor`, 16px default. Pair icons with text; no decorative icons in tables. Use: search, refresh-cw, play, download, triangle-alert, info, circle-check, circle-x, eye, sun/moon/monitor, trash-2, wallet. |
+| Icons | `.ar-icon` (`--sm` 14, `--lg` 20), `.ar-btn__icon` | See **Icons (Lucide)** below. |
+
+### Buttons
+- **Sizes:** `sm` 26px (compact 24) is **icon-only**: a square with no visible label. It **must** have `aria-label` and `data-tooltip` naming the action (put the name in a visually hidden `.ar-btn__label` too). `md` 32px (compact 28) and `lg` 38px (compact 34) are **icon + label**.
+- **Widths:** md has `min-width: 96px` (compact 88), lg `120px` (compact 112), so short labels ("Run", "Export", "Cancel") render at the same width. The label is centred. Longer labels grow the button; keep labels to 1–3 words. Icon-only (`--sm`, `--icon`) stays square.
+- **Equal widths:** wrap related buttons (dialog footers, toolbars) in `.ar-btn-group.ar-btn-group--equal` so every button takes the widest one's width. In narrow panels use `.ar-btn--block` (full width).
+- **Icons:** a leading icon by default (`<i class="ar-btn__icon" data-lucide="play">` or a sprite `<svg class="ar-btn__icon">`). Trailing icon (`.ar-btn__icon--trailing`) only for menus/disclosure (`chevron-down`) or leaving the app (`external-link`). Icon size follows the button: sm 14, md 16, lg 18 (`--argus-btn-icon-*`). Gap is `--argus-btn-gap` (6px; lg 8px).
+- **Loading:** set `aria-busy="true"` and change the label to the progressive form ("Running…"). The spinner **replaces the leading icon**; the width doesn't change; clicks are blocked.
+- **Variants:** one primary per view; ghost for Cancel/tertiary actions; danger only for destructive actions; paid runs use primary inside the confirm dialog. Cancel sits left of the confirm button.
+- **Recommended action icons:**
+
+| Action | Lucide icon | Usual variant |
+|---|---|---|
+| Run / start analysis | `play` | primary |
+| Refresh / refetch | `refresh-cw` | secondary or sm ghost |
+| Confirm / apply | `check` | primary |
+| Cancel / close / dismiss | `x` | ghost |
+| Delete / remove | `trash-2` | danger |
+| Export / download | `download` | secondary |
+| Settings | `settings` | secondary or sm ghost |
+| Search / filter | `search` / `filter` | in inputs / sm ghost |
+| Copy | `copy` | sm ghost |
+| Edit / save / import | `pencil` / `save` / `upload` | secondary |
+| Open external | `external-link` (trailing) | ghost |
+| Schedule / routine | `clock` / `calendar` / `bell` | secondary |
+
+### Icons (Lucide)
+- **Library:** Lucide **v1.70.0**, pinned and vendored in `assets/icons/` (ISC licence in `assets/icons/LICENSE`). No CDN, no runtime fetch. To upgrade: `npm pack lucide@X lucide-static@X`, replace `lucide.min.js`, regenerate the sprite, update `VERSION.txt`, re-check the showcase.
+- **Production (preferred): SVG sprite.** Serve `assets/icons/argus-icons.svg` from the Argus server and reference icons by id:
+  `<svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#refresh-cw"/></svg>`.
+  The sprite holds only the icons in use (34). To add one, copy its `<symbol>` from lucide-static `icons/<name>.svg` (or add the name to `assets/icons/build_icons.py` and run it against an unpacked lucide-static). External `<use>` needs http(s); it won't load from `file://`.
+- **Prototyping / showcase: `lucide.min.js`.** `<i class="ar-icon" data-lucide="play"></i>` + `<script src="assets/icons/lucide.min.js"></script><script>lucide.createIcons()</script>` (works offline and on `file://`). Classes on the `<i>` carry over to the generated `<svg>`.
+- **Style:** 24-unit grid, stroke 2, `currentColor`, round caps. UI size 16px (`.ar-icon`), 14 in compact/`--sm`, 20 for empty states (`--lg`, stroke 1.75). Icons take the text colour of their context; don't colour icons with gain/loss unless they *are* the direction cue.
+- **Accessibility:** decorative icons get `aria-hidden="true"`; icon-only controls need `aria-label` + tooltip. Never use an icon alone where a word is clearer (table cells, ratings).
 
 ### Do / don't
 - **Do** keep the data the hero: big key numbers, quiet chrome, generous right-aligned numeric columns.

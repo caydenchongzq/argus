@@ -1,0 +1,4 @@
+lucide 1.70.0 (npm, dist/umd/lucide.min.js)
+lucide-static 1.70.0 (npm, icons/*.svg -> argus-icons.svg subset)
+Licence: ISC (LICENSE). Fetched 2026-11-07. No CDN.
+Icons in sprite: play, refresh-cw, check, x, trash-2, download, settings, search, triangle-alert, info, circle-check, circle-x, eye, sun, moon, monitor, inbox, wallet, chevron-down, chevron-right, trending-up, trending-down, arrow-up-down, loader-circle, filter, external-link, copy, plus, pencil, save, upload, clock, calendar, bell

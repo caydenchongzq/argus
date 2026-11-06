@@ -462,6 +462,15 @@
   --argus-row-h: 36px;        /* table rows */
   --argus-cell-px: 12px;
   --argus-icon-size: 16px;
+
+  /* Buttons: equal-feeling widths and icon sizing */
+  --argus-btn-minw-md: 96px;
+  --argus-btn-minw-lg: 120px;
+  --argus-btn-gap: 6px;       /* icon ↔ label, md */
+  --argus-btn-gap-lg: 8px;
+  --argus-btn-icon-sm: 14px;  /* sm buttons are icon-only squares */
+  --argus-btn-icon-md: 16px;
+  --argus-btn-icon-lg: 18px;
 }
 
 [data-density="compact"] {
@@ -477,6 +486,8 @@
   --argus-text-body: 12px;  --argus-leading-body: 18px;
   --argus-text-data: 12px;  --argus-leading-data: 18px;
   --argus-icon-size: 14px;
+  --argus-btn-minw-md: 88px;
+  --argus-btn-minw-lg: 112px;
 }
 
 /* Elevation: light uses soft shadows; dark relies on lighter surfaces + borders, shadows are deeper and subtle */
