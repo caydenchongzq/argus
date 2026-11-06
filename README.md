@@ -35,11 +35,11 @@ $env:TRADINGAGENTS_ROOT = "D:\path\to\TradingAgents"
 
 | Tab | Features |
 |-----|----------|
-| **Portfolio** | Holdings, cost, live-ish marks from the latest `portfolio_stats.json`, P&L, current vs target weight chart, cash |
+| **Portfolio** | Holdings from the book. Value, weight and cash % are quantity × the latest stats price, recomputed when the book has changed |
 | **Watchlist** | View / add / remove candidates; writes `data\watchlist.json` with timestamped `.bak` copies |
 | **Reports** | List by ticker/date, rendered Markdown, latest rating highlighted |
-| **Fund manager** | Latest plan, trades table, history by date |
-| **Runs** | One-click or selective runs (book + watchlist checkboxes), toggles for `-RunAgents`, `-NoLLM`, `-IncludeRisk`, `-NoMacro`, `-AnalysisDate`, `-Since`, and `-IncludeWatchlist` when the script supports it. Cost/time warning (~7 min/ticker) + confirm dialog. Background PowerShell process with live log tail |
+| **Fund manager** | Latest plan. Trades come from `final` / `final_check` (the add-on does not write a `decision` key). History includes timestamped run folders |
+| **Runs** | Selective runs. Cost warning is ~2.5 min/ticker plus 5 fund-manager calls (Luna for conservative and neutral; Opus is not the default). POST `/api/runs` needs `confirm: true` and the `X-Argus-Confirm` token from `GET /api/session`. Requests whose Host is not localhost / 127.0.0.1 are rejected |
 
 ## Layout
 
@@ -55,7 +55,9 @@ argus/
 
 ## Safety notes
 
-- Binds to **127.0.0.1** only.
+- Binds to **127.0.0.1** only, and rejects any other Host header.
+- Markdown from reports is rendered with pinned local marked 15.0.12 and sanitized with DOMPurify 3.2.4. Chart.js 4.4.7 is local too.
+- POST `/api/runs` requires the per-process confirm token plus `confirm: true`.
 - Does **not** modify TradingAgents source files.
 - Watchlist edits backup the previous JSON first.
 - Do not start paid agent runs from Argus unless you mean to spend OpenRouter credits.

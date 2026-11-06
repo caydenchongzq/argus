@@ -18,7 +18,26 @@ const state = {
   chart: null,
   bookTickers: [],
   pendingRun: null,
+  token: null,
 };
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function renderMarkdown(el, md) {
+  if (!md) {
+    el.innerHTML = "<p class='muted'>No markdown report</p>";
+    return;
+  }
+  if (!window.marked || !window.DOMPurify) {
+    el.textContent = md;
+    return;
+  }
+  el.innerHTML = DOMPurify.sanitize(marked.parse(md), { USE_PROFILES: { html: true } });
+}
 
 function money(n) {
   if (n == null || Number.isNaN(n)) return "—";
@@ -39,11 +58,10 @@ function ratingClass(r) {
   return "hold";
 }
 
-async function api(path, opts) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(opts?.headers || {}) },
-    ...opts,
-  });
+async function api(path, opts = {}) {
+  const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  if (state.token) headers["X-Argus-Confirm"] = state.token;
+  const res = await fetch(path, { ...opts, headers });
   const text = await res.text();
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
@@ -88,9 +106,11 @@ async function loadPortfolio() {
   const data = await api("/api/portfolio");
   state.portfolio = data;
   state.bookTickers = (data.positions || []).map((p) => p.ticker);
-  $("#pfAsOf").textContent = data.stats_date
-    ? `prices from fund stats ${data.stats_date}`
+  let asOf = data.prices_as_of
+    ? `prices as of ${data.prices_as_of}`
     : "cost basis only (no stats yet)";
+  if (data.book_newer_than_stats) asOf += " · book is newer than these prices";
+  $("#pfAsOf").textContent = asOf;
   $("#pfSub").textContent = data.total_market_value != null
     ? `NAV ${money(data.total_market_value)} · cash ${money(data.cash)}`
     : `Cash ${money(data.cash)} · mark prices when a fund-manager stats file exists`;
@@ -107,8 +127,8 @@ async function loadPortfolio() {
   tb.innerHTML = data.positions.map((p) => {
     const pnlCls = (p.unrealized_pnl ?? 0) >= 0 ? "pos" : "neg";
     return `<tr>
-      <td class="mono"><strong>${p.ticker}</strong></td>
-      <td class="muted">${p.name || ""}</td>
+      <td class="mono"><strong>${esc(p.ticker)}</strong></td>
+      <td class="muted">${esc(p.name || "")}</td>
       <td class="num">${p.quantity}</td>
       <td class="num">${money2(p.average_price)}</td>
       <td class="num">${money2(p.price)}</td>
@@ -170,10 +190,10 @@ async function loadWatchlist() {
   const tb = $("#wlTable tbody");
   tb.innerHTML = state.watchlist.map((it) => `
     <tr>
-      <td class="mono"><strong>${it.ticker}</strong></td>
-      <td>${it.sector || ""}</td>
-      <td>${it.type || ""}</td>
-      <td><button class="btn sm danger" data-rm="${it.ticker}">Remove</button></td>
+      <td class="mono"><strong>${esc(it.ticker)}</strong></td>
+      <td>${esc(it.sector || "")}</td>
+      <td>${esc(it.type || "")}</td>
+      <td><button class="btn sm danger" data-rm="${esc(it.ticker)}">Remove</button></td>
     </tr>`).join("") || `<tr><td colspan="4" class="muted">Empty watchlist</td></tr>`;
 }
 
@@ -251,53 +271,61 @@ $("#repList").addEventListener("click", async (e) => {
   const rc = ratingClass(data.meta.rating);
   $("#repMeta").innerHTML = `${data.meta.rating ? `<span class="rating ${rc}">${data.meta.rating}</span> · ` : ""}
     analysis ${data.meta.analysis_date || "—"} · generated ${data.meta.generated || "—"}`;
-  $("#repMd").innerHTML = marked.parse(data.markdown || "");
+  renderMarkdown($("#repMd"), data.markdown || "");
 });
 
 /* ---------- fund manager ---------- */
-async function loadFund(date) {
-  const data = date
-    ? await api(`/api/fund-manager/${encodeURIComponent(date)}`)
+async function loadFund(path) {
+  const data = path
+    ? await api(`/api/fund-manager/at?path=${encodeURIComponent(path)}`)
     : await api("/api/fund-manager");
   state.fund = data;
-  if (!date) {
-    $("#fmDate").innerHTML = (data.history || []).map((h) =>
-      `<option value="${h.date}" ${h.date === data.date ? "selected" : ""}>${h.date}${h.has_report ? "" : " (no report)"}</option>`
-    ).join("") || `<option value="">No runs</option>`;
+  if (!path) {
+    $("#fmDate").innerHTML = (data.history || []).map((h) => {
+      const id = h.path || h.date;
+      const label = `${id}${h.kind === "snapshot" ? " snapshot" : ""}`;
+      return `<option value="${esc(id)}" ${id === (data.path || data.date) ? "selected" : ""}>${esc(label)}</option>`;
+    }).join("") || `<option value="">No runs</option>`;
     $("#fmHistory").innerHTML = (data.history || []).map((h) => `
-      <div class="list-item" data-date="${h.date}">
-        <div><strong>${h.date}</strong>
-          <div class="meta">${[h.has_report && "report", h.has_json && "json", h.has_stats && "stats"].filter(Boolean).join(" · ")}</div>
+      <div class="list-item" data-path="${esc(h.path || h.date)}">
+        <div><strong>${esc(h.path || h.date)}</strong>
+          <div class="meta">${[h.kind, h.has_json && "json", h.has_stats && "stats"].filter(Boolean).join(" · ")}</div>
         </div>
       </div>`).join("") || `<div class="muted">No history</div>`;
   }
-  $("#fmSub").textContent = data.date ? `Plan for ${data.date}` : "No fund manager output yet";
-  const trades = data.trades || data.decision?.trades || [];
+  $("#fmSub").textContent = data.path ? `Plan ${data.path}` : "No fund manager output yet";
+  const trades = data.trades || [];
   $("#fmTrades tbody").innerHTML = trades.map((t) => `
     <tr>
-      <td class="mono"><strong>${t.ticker}</strong></td>
-      <td class="action ${(t.action || "").toLowerCase()}">${t.action}</td>
+      <td class="mono"><strong>${esc(t.ticker)}</strong></td>
+      <td class="action ${esc((t.action || "").toLowerCase())}">${esc(t.action)}</td>
       <td class="num">${t.shares ?? "—"}</td>
-      <td class="num">${money2(t.est_price)}</td>
-      <td><span class="rating ${ratingClass(t.agent_rating)}">${t.agent_rating || "—"}</span></td>
-      <td class="muted">${t.follows_agent || ""}</td>
-      <td class="muted">${(t.rationale || "").slice(0, 160)}${(t.rationale || "").length > 160 ? "…" : ""}</td>
+      <td class="num">${money2(t.calc_price ?? t.est_price)}</td>
+      <td><span class="rating ${ratingClass(t.agent_rating)}">${esc(t.agent_rating || "—")}</span></td>
+      <td class="muted">${esc(t.follows_agent || "")}</td>
+      <td class="muted">${esc((t.rationale || "").slice(0, 160))}${(t.rationale || "").length > 160 ? "…" : ""}</td>
     </tr>`).join("") || `<tr><td colspan="7" class="muted">No trades in this run</td></tr>`;
 
   const d = data.decision || {};
+  const summary = d.decision_summary || d.diagnosis || "";
+  const warns = (data.warnings || []).map((w) => `<li>${esc(w)}</li>`).join("");
+  const cash = d.cash_decision || data.cash_decision || {};
   $("#fmSummary").innerHTML = `
-    <p><strong>${d.headline || "—"}</strong></p>
-    <p>${d.decision_summary || d.diagnosis || "<span class='muted'>No summary field</span>"}</p>
-    <p class="muted">Confidence: ${d.confidence ?? "—"}</p>`;
-  $("#fmMd").innerHTML = data.markdown ? marked.parse(data.markdown) : `<p class="muted">No markdown report</p>`;
+    <p><strong>${esc(d.headline || "—")}</strong></p>
+    <p>${summary ? esc(summary) : "<span class='muted'>No summary field</span>"}</p>
+    <p class="muted">Confidence: ${esc(d.confidence ?? "—")}
+      ${cash.target_cash_pct != null ? ` · target cash ${esc(cash.target_cash_pct)}%` : ""}
+      ${data.ending_cash != null ? ` · post-trade cash ${money(data.ending_cash)} (${esc(data.ending_cash_pct)}%)` : ""}</p>
+    ${warns ? `<ul>${warns}</ul>` : ""}`;
+  renderMarkdown($("#fmMd"), data.markdown || "");
 }
 
 $("#fmDate").addEventListener("change", (e) => loadFund(e.target.value));
 $("#fmHistory").addEventListener("click", (e) => {
-  const it = e.target.closest("[data-date]");
+  const it = e.target.closest("[data-path]");
   if (!it) return;
-  $("#fmDate").value = it.dataset.date;
-  loadFund(it.dataset.date);
+  $("#fmDate").value = it.dataset.path;
+  loadFund(it.dataset.path);
 });
 
 /* ---------- runs ---------- */
@@ -351,9 +379,9 @@ function updateRunWarn() {
   if (nollm && !agents) {
     msg = "Snapshot only (-NoLLM): no model call, free, usually under a minute.";
   } else if (agents) {
-    msg = `Agent runs: ~${n} ticker(s) × ~7 min ≈ ${n * 7} minutes, plus OpenRouter model fees. Fund manager step follows.`;
+    msg = `Agent runs: ~${n} ticker(s) × ~2.5 min ≈ ${Math.round(n * 2.5)} minutes, plus OpenRouter fees. The fund manager step after that is 5 calls.`;
   } else {
-    msg = "Fund manager only (existing reports): typically 2–5 minutes and one Sol call.";
+    msg = "Fund manager only: 5 calls (draft, aggressive, conservative, neutral, final), about 9 minutes. Conservative and neutral default to Luna, not Opus. The last Opus committee was about $1.20.";
   }
   $("#runWarn").textContent = msg;
 }
@@ -448,8 +476,8 @@ $("#btnStartRun").addEventListener("click", () => {
   const n = body.tickers.length || (body.run_agents ? state.bookTickers.length : 0);
   let est;
   if (body.no_llm && !body.run_agents) est = "under ~1 min, free";
-  else if (body.run_agents) est = `~${n * 7} min + model fees`;
-  else est = "2–5 min + one model call";
+  else if (body.run_agents) est = `~${Math.round(n * 2.5)} min + model fees, then 5 fund-manager calls`;
+  else est = "~9 min, 5 model calls (Luna for conservative and neutral; Opus is not the default)";
   state.pendingRun = body;
   $("#confirmText").textContent = `Start this run? Estimate: ${est}. Tickers: ${body.tickers.length ? body.tickers.join(", ") : "(default / none)"}.`;
   $("#confirmModal").classList.remove("hidden");
@@ -475,6 +503,10 @@ $("#confirmGo").addEventListener("click", async () => {
 
 /* ---------- boot ---------- */
 (async function boot() {
+  try {
+    const res = await fetch("/api/session");
+    if (res.ok) state.token = (await res.json()).token;
+  } catch (_) { /* runs will 401 until a session token loads */ }
   await loadHealth();
   setTab("portfolio");
 })();

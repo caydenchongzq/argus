@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import threading
@@ -16,10 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -44,6 +46,33 @@ REPORT_DIR_RE = re.compile(r"^(.+)_(\d{8})_(\d{6})$")
 
 app = FastAPI(title="Argus", docs_url=None, redoc_url=None)
 
+# Per-process confirm token. The page reads it from GET /api/session (same origin only)
+# and must send it back as X-Argus-Confirm on POST /api/runs. A foreign page cannot
+# read it, and the host check below rejects a DNS-rebinding Host.
+CONFIRM_TOKEN = secrets.token_urlsafe(32)
+_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+class _LocalHostMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        host = (request.headers.get("host") or "").strip().lower()
+        if host.startswith("["):
+            name = host.split("]")[0].strip("[]")
+        else:
+            name = host.split(":")[0]
+        if name not in _ALLOWED_HOSTS:
+            return JSONResponse({"detail": "Host not allowed"}, status_code=400)
+        return await call_next(request)
+
+
+app.add_middleware(_LocalHostMiddleware)
+
+
+def _require_confirm_token(request: Request) -> None:
+    got = request.headers.get("x-argus-confirm") or ""
+    if len(got) != len(CONFIRM_TOKEN) or not secrets.compare_digest(got, CONFIRM_TOKEN):
+        raise HTTPException(401, "POST /api/runs requires the X-Argus-Confirm token from GET /api/session")
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -67,45 +96,107 @@ def _safe_ticker(t: str) -> str:
     return t
 
 
-def _latest_stats() -> Optional[dict]:
-    if not FUND_DIR.exists():
+def _first_file(folder: Path, names: list[str]) -> Optional[Path]:
+    for name in names:
+        p = folder / name
+        if p.is_file():
+            return p
+    return None
+
+
+def _newest_file(folder: Path, names: list[str]) -> Optional[Path]:
+    existing = [folder / name for name in names if (folder / name).is_file()]
+    if not existing:
         return None
-    dates = sorted(
-        [p for p in FUND_DIR.iterdir() if p.is_dir() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", p.name)],
-        reverse=True,
-    )
-    for d in dates:
-        for name in ("portfolio_stats.json", "snapshot_portfolio_stats.json"):
-            p = d / name
-            if p.exists():
-                try:
-                    return {"date": d.name, "path": str(p), **_read_json(p)}
-                except Exception:
-                    continue
+    return max(existing, key=lambda p: p.stat().st_mtime)
+
+
+def _fm_runs() -> list[dict]:
+    """Legacy date folders and timestamped date/HHMMSS_id folders, newest file first."""
+    if not FUND_DIR.exists():
+        return []
+    found = []
+    for date_dir in FUND_DIR.iterdir():
+        if not date_dir.is_dir() or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_dir.name):
+            continue
+        folders = [date_dir]
+        for child in date_dir.iterdir():
+            if child.is_dir() and re.fullmatch(r"\d{6}_[A-Za-z0-9]+", child.name):
+                folders.append(child)
+        for folder in folders:
+            report = _first_file(folder, ["portfolio_report.json", "portfolio_snapshot.json"])
+            md = _first_file(folder, ["portfolio_report.md", "portfolio_snapshot.md"])
+            stats = _newest_file(folder, ["portfolio_stats.json", "snapshot_portfolio_stats.json"])
+            mtimes = [p.stat().st_mtime for p in (report, md, stats) if p is not None]
+            if not mtimes:
+                continue
+            rel = str(folder.relative_to(FUND_DIR)).replace("\\", "/")
+            found.append({
+                "rel": rel,
+                "date": date_dir.name,
+                "folder": folder,
+                "report_json": report,
+                "markdown_path": md,
+                "stats_path": stats,
+                "mtime": max(mtimes),
+                "kind": "report" if report is not None and report.name == "portfolio_report.json" else "snapshot",
+            })
+    found.sort(key=lambda r: r["mtime"], reverse=True)
+    return found
+
+
+def _load_run_view(run: dict) -> dict:
+    out: dict[str, Any] = {"date": run["date"], "path": run["rel"], "kind": run["kind"]}
+    if run["report_json"] is not None:
+        try:
+            out["json"] = _read_json(run["report_json"])
+        except Exception:
+            out["json"] = None
+    if run["markdown_path"] is not None:
+        out["markdown"] = run["markdown_path"].read_text(encoding="utf-8", errors="replace")
+    return out
+
+
+def _decision_bundle(js: Optional[dict]) -> dict:
+    """The add-on writes final/draft and final_check, not a decision key."""
+    js = js or {}
+    decision = js.get("final") or js.get("draft") or js.get("decision")
+    check = None
+    if js.get("final") is not None:
+        check = js.get("final_check") or {}
+    elif js.get("draft") is not None:
+        check = js.get("draft_check") or {}
+    else:
+        check = js.get("final_check") or js.get("draft_check") or {}
+    trades = (check or {}).get("trades") or (decision or {}).get("trades") or []
+    return {
+        "decision": decision,
+        "trades": trades,
+        "warnings": (check or {}).get("warnings") or [],
+        "cash_decision": (decision or {}).get("cash_decision") if isinstance(decision, dict) else None,
+        "ending_cash": (check or {}).get("ending_cash"),
+        "ending_cash_pct": (check or {}).get("ending_cash_pct"),
+        "post_trade_risk": (check or {}).get("post_trade_risk"),
+    }
+
+
+def _latest_stats() -> Optional[dict]:
+    for run in _fm_runs():
+        if run["stats_path"] is None:
+            continue
+        try:
+            return {"date": run["date"], "path": str(run["stats_path"]), "run": run["rel"], **_read_json(run["stats_path"])}
+        except Exception:
+            continue
     return None
 
 
 def _latest_fund_report() -> Optional[dict]:
-    if not FUND_DIR.exists():
-        return None
-    dates = sorted(
-        [p for p in FUND_DIR.iterdir() if p.is_dir() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", p.name)],
-        reverse=True,
-    )
-    for d in dates:
-        md = d / "portfolio_report.md"
-        js = d / "portfolio_report.json"
-        if md.exists() or js.exists():
-            out: dict[str, Any] = {"date": d.name}
-            if js.exists():
-                try:
-                    out["json"] = _read_json(js)
-                except Exception:
-                    out["json"] = None
-            if md.exists():
-                out["markdown"] = md.read_text(encoding="utf-8", errors="replace")
-            return out
-    return None
+    runs = _fm_runs()
+    chosen = next((r for r in runs if r["kind"] == "report"), None)
+    if chosen is None and runs:
+        chosen = runs[0]
+    return _load_run_view(chosen) if chosen else None
 
 
 def _script_flags() -> dict[str, bool]:
@@ -267,8 +358,15 @@ def config():
         "app": "Argus",
         "tradingagents_root": str(TA_ROOT),
         "flags": _script_flags(),
-        "minutes_per_ticker": 7,
+        "minutes_per_ticker": 3,
+        "fund_manager_calls": 5,
+        "models_note": "Fund manager and aggressive: openai/gpt-6.1-sol. Conservative and neutral: openai/gpt-6-luna. Opus is not a default.",
     }
+
+
+@app.get("/api/session")
+def session():
+    return {"token": CONFIRM_TOKEN, "header": "X-Argus-Confirm"}
 
 
 # ---------------------------------------------------------------------------
@@ -281,9 +379,7 @@ def portfolio():
     targets = _read_json(TARGETS) if TARGETS.exists() else {"weights_pct": {}}
     stats = _latest_stats()
     price_map: dict[str, dict] = {}
-    account = None
     if stats:
-        account = stats.get("account")
         for p in stats.get("positions") or []:
             price_map[p["ticker"]] = p
 
@@ -296,11 +392,17 @@ def portfolio():
         avg = float(pos.get("average_price") or 0)
         cost = qty * avg
         invested_cost += cost
-        st = price_map.get(t)
-        price = st["price"] if st else None
-        mv = st["market_value"] if st else (None)
-        if mv is not None:
-            invested_mv += float(mv)
+        st = price_map.get(t) or {}
+        price = st.get("price")
+        # Value is today's quantity times the latest stats price. The stored
+        # market_value and weight belong to whatever quantity the book had then.
+        if price is not None:
+            mv = qty * float(price)
+            invested_mv += mv
+            pnl = mv - cost
+            pnl_pct = ((float(price) / avg - 1) * 100) if avg else None
+        else:
+            mv = pnl = pnl_pct = None
         rows.append({
             "ticker": t,
             "quantity": qty,
@@ -308,42 +410,58 @@ def portfolio():
             "cost_basis": cost,
             "price": price,
             "market_value": mv,
-            "unrealized_pnl": st.get("unrealized_pnl") if st else None,
-            "unrealized_pnl_pct": st.get("unrealized_pnl_pct") if st else None,
-            "weight_pct": st.get("weight_pct") if st else None,
-            "sector": st.get("sector") if st else None,
-            "name": st.get("name") if st else None,
+            "unrealized_pnl": pnl,
+            "unrealized_pnl_pct": pnl_pct,
+            "weight_pct": None,
+            "sector": st.get("sector"),
+            "name": st.get("name"),
             "target_pct": (targets.get("weights_pct") or {}).get(t),
         })
 
     cash = float(book.get("cash") or 0)
     total_cost = invested_cost + cash
-    total_mv = (invested_mv + cash) if price_map else None
-    weights_current = []
-    for r in rows:
-        w = r["weight_pct"]
-        if w is None and total_mv and r["market_value"] is not None:
-            w = 100.0 * float(r["market_value"]) / total_mv
-        weights_current.append({"ticker": r["ticker"], "weight_pct": w, "target_pct": r["target_pct"]})
-    cash_pct = None
-    if account and account.get("cash_pct") is not None:
-        cash_pct = account["cash_pct"]
-    elif total_mv:
-        cash_pct = 100.0 * cash / total_mv
+    priced = [r for r in rows if r["market_value"] is not None]
+    total_mv = (invested_mv + cash) if priced else None
+    cash_pct = (100.0 * cash / total_mv) if total_mv else None
+    if total_mv:
+        for r in rows:
+            if r["market_value"] is not None:
+                r["weight_pct"] = 100.0 * float(r["market_value"]) / total_mv
+    weights_current = [
+        {"ticker": r["ticker"], "weight_pct": r["weight_pct"], "target_pct": r["target_pct"]}
+        for r in rows
+    ]
+    book_newer = False
+    stats_path = stats.get("path") if stats else None
+    if stats_path and BOOK.exists():
+        try:
+            book_newer = BOOK.stat().st_mtime > Path(stats_path).stat().st_mtime + 1
+        except OSError:
+            book_newer = False
+    unrealized = sum(r["unrealized_pnl"] or 0 for r in rows) if priced else None
+    account_out = {
+        "total_value": round(total_mv, 2) if total_mv is not None else None,
+        "invested": round(invested_mv, 2) if priced else None,
+        "cash": cash,
+        "cash_pct": round(cash_pct, 1) if cash_pct is not None else None,
+        "unrealized_pnl": round(unrealized, 2) if unrealized is not None else None,
+    }
 
     return {
         "currency": book.get("currency", "USD"),
         "cash": cash,
-        "cash_pct": cash_pct,
+        "cash_pct": round(cash_pct, 1) if cash_pct is not None else None,
         "cash_target_pct": (targets.get("weights_pct") or {}).get("cash"),
         "positions": rows,
         "weights": weights_current,
         "targets": targets.get("weights_pct") or {},
-        "account": account,
+        "account": account_out,
         "total_cost": total_cost,
-        "total_market_value": account.get("total_value") if account else total_mv,
+        "total_market_value": account_out["total_value"],
         "stats_date": stats.get("date") if stats else None,
+        "stats_run": stats.get("run") if stats else None,
         "prices_as_of": (stats.get("as_of_prices") if stats else None),
+        "book_newer_than_stats": book_newer,
     }
 
 
@@ -432,58 +550,68 @@ def report_detail(report_id: str):
 # Fund manager
 # ---------------------------------------------------------------------------
 
-@app.get("/api/fund-manager")
-def fund_manager():
-    latest = _latest_fund_report()
-    history = []
-    if FUND_DIR.exists():
-        for p in sorted(
-            [x for x in FUND_DIR.iterdir() if x.is_dir() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", x.name)],
-            reverse=True,
-        ):
-            history.append({
-                "date": p.name,
-                "has_report": (p / "portfolio_report.md").exists(),
-                "has_json": (p / "portfolio_report.json").exists(),
-                "has_stats": (p / "portfolio_stats.json").exists() or (p / "snapshot_portfolio_stats.json").exists(),
-            })
-    trades = []
-    decision = None
-    markdown = None
-    date = None
-    if latest:
-        date = latest.get("date")
-        markdown = latest.get("markdown")
-        js = latest.get("json") or {}
-        decision = js.get("decision")
-        if decision and decision.get("trades"):
-            trades = decision["trades"]
+def _history_row(run: dict) -> dict:
     return {
-        "date": date,
-        "markdown": markdown,
-        "decision": decision,
-        "trades": trades,
+        "date": run["date"],
+        "path": run["rel"],
+        "kind": run["kind"],
+        "has_report": run["kind"] == "report",
+        "has_json": run["report_json"] is not None,
+        "has_stats": run["stats_path"] is not None,
+    }
+
+
+def _fund_payload(run: Optional[dict]) -> dict:
+    history = [_history_row(r) for r in _fm_runs()]
+    if run is None:
+        return {"date": None, "path": None, "markdown": None, "decision": None, "trades": [],
+                "warnings": [], "history": history}
+    view = _load_run_view(run)
+    bundle = _decision_bundle(view.get("json"))
+    return {
+        "date": view.get("date"),
+        "path": view.get("path"),
+        "kind": view.get("kind"),
+        "markdown": view.get("markdown"),
+        "decision": bundle["decision"],
+        "trades": bundle["trades"],
+        "warnings": bundle["warnings"],
+        "cash_decision": bundle["cash_decision"],
+        "ending_cash": bundle["ending_cash"],
+        "ending_cash_pct": bundle["ending_cash_pct"],
+        "post_trade_risk": bundle["post_trade_risk"],
         "history": history,
     }
+
+
+@app.get("/api/fund-manager")
+def fund_manager():
+    runs = _fm_runs()
+    chosen = next((r for r in runs if r["kind"] == "report"), None)
+    if chosen is None and runs:
+        chosen = runs[0]
+    return _fund_payload(chosen)
+
+
+@app.get("/api/fund-manager/at")
+def fund_manager_at(path: str):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}(?:/\d{6}_[A-Za-z0-9]+)?", path):
+        raise HTTPException(400, "Invalid path")
+    run = next((r for r in _fm_runs() if r["rel"] == path), None)
+    if run is None:
+        raise HTTPException(404, "No fund manager run at that path")
+    return _fund_payload(run)
 
 
 @app.get("/api/fund-manager/{date}")
 def fund_manager_date(date: str):
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         raise HTTPException(400, "Invalid date")
-    d = FUND_DIR / date
-    if not d.exists():
+    runs = [r for r in _fm_runs() if r["date"] == date]
+    if not runs:
         raise HTTPException(404, "No fund manager run for that date")
-    out: dict[str, Any] = {"date": date}
-    md = d / "portfolio_report.md"
-    js = d / "portfolio_report.json"
-    if md.exists():
-        out["markdown"] = md.read_text(encoding="utf-8", errors="replace")
-    if js.exists():
-        out["json"] = _read_json(js)
-        out["decision"] = out["json"].get("decision")
-        out["trades"] = (out["decision"] or {}).get("trades") or []
-    return out
+    chosen = next((r for r in runs if r["kind"] == "report"), runs[0])
+    return _fund_payload(chosen)
 
 
 # ---------------------------------------------------------------------------
@@ -566,7 +694,8 @@ def runs_log_stream(run_id: str, from_byte: int = Query(0, ge=0)):
 
 
 @app.post("/api/runs")
-def runs_start(body: RunRequest):
+def runs_start(body: RunRequest, request: Request):
+    _require_confirm_token(request)
     if not body.confirm:
         raise HTTPException(400, "Set confirm=true after acknowledging cost/time warning")
     if not RUN_SCRIPT.exists():
@@ -582,7 +711,9 @@ def runs_start(body: RunRequest):
             n = len((_read_json(BOOK).get("positions") or []))
         except Exception:
             n = 0
-    est_min = n * 7 if body.run_agents else (0 if body.no_llm else 5)
+    # Observed per-ticker runs were about 2.5 minutes. The fund-manager step is 5 calls
+    # (draft, three risk voices, final), not one. Opus is not in the default set.
+    est_min = int(round(n * 2.5)) if body.run_agents else (0 if body.no_llm else 9)
 
     args = [
         "powershell",

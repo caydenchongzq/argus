@@ -4,4 +4,8 @@ __pycache__/
 runs/*
 !runs/.gitkeep
 .env
+.env.*
+.env.bak*
+*.bak_*
+*.bak.*
 *.log
