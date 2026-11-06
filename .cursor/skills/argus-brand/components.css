@@ -79,7 +79,7 @@ body.ar-body, .ar-root {
 @media (max-width: 959px)  { .ar-span-3, .ar-span-6 { grid-column: span 12; } .ar-header__meta { display: none; } }
 
 /* ---- Buttons ------------------------------------------------------------- */
-/* md/lg: [leading icon] label [trailing icon], min-width per size, centred.
+/* md/lg: [leading icon] label  OR  label [trailing icon] (never both), min-width per size, centred.
    sm: icon-only square (aria-label + data-tooltip required). --icon: square at md/lg. */
 .ar-btn {
   --_bg: var(--argus-btn-secondary-bg); --_fg: var(--argus-btn-secondary-text); --_bd: var(--argus-btn-secondary-border);
@@ -102,6 +102,9 @@ body.ar-body, .ar-root {
 /* Icons inside buttons (<svg class="ar-btn__icon"> or <i data-lucide class="ar-btn__icon">) */
 .ar-btn__icon { width: var(--_icon); height: var(--_icon); flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .ar-btn__icon--trailing { order: 2; }
+/* Trailing-icon (menu/disclosure) buttons: label + chevron only, slightly tighter so short labels stay within the min-width */
+.ar-btn:has(> .ar-btn__icon--trailing) { padding-right: calc(var(--argus-control-px) - 4px); gap: 4px; }
+.ar-btn:has(> .ar-btn__icon--trailing) > .ar-btn__icon:not(.ar-btn__icon--trailing) { display: none; }
 .ar-btn__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* Sizes */
@@ -131,7 +134,7 @@ body.ar-body, .ar-root {
   content: ""; width: calc(var(--_icon) - 2px); height: calc(var(--_icon) - 2px); flex: none; border-radius: 50%;
   border: 2px solid currentColor; border-right-color: transparent; animation: ar-spin 0.7s linear infinite;
 }
-.ar-btn[aria-busy="true"] > .ar-btn__icon:not(.ar-btn__icon--trailing) { display: none; }
+.ar-btn[aria-busy="true"] > .ar-btn__icon { display: none; } /* spinner takes the icon slot; trailing chevron hides too, so width never grows */
 
 /* Spinner */
 .ar-spinner { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--argus-border-strong); border-top-color: var(--argus-brand); animation: ar-spin 0.8s linear infinite; }
@@ -155,6 +158,9 @@ body.ar-body, .ar-root {
 .ar-input[aria-invalid="true"], .ar-select[aria-invalid="true"] { border-color: var(--argus-danger); }
 .ar-input:disabled, .ar-select:disabled { background: var(--argus-input-disabled-bg); color: var(--argus-text-disabled); border-color: var(--argus-border); cursor: not-allowed; }
 .ar-input--num { text-align: right; font-variant-numeric: tabular-nums; }
+.ar-input[readonly] { background: var(--argus-surface-2); border-color: var(--argus-border); color: var(--argus-text); cursor: default; }
+.ar-input[readonly]:hover { border-color: var(--argus-border); }
+.ar-input--mono { font-family: var(--argus-font-mono); font-size: var(--argus-text-code); }
 .ar-input--sm, .ar-select--sm { height: var(--argus-control-h-sm); font-size: var(--argus-text-small); }
 .ar-input-group { position: relative; display: flex; align-items: center; }
 .ar-input-group > .ar-icon { position: absolute; left: 10px; color: var(--argus-text-3); pointer-events: none; }
@@ -348,6 +354,23 @@ dialog.ar-dialog::backdrop { background: var(--argus-backdrop); }
 [data-tooltip]:hover::after, [data-tooltip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); transition-delay: 300ms; }
 [data-tooltip].is-open::after { opacity: 1; transform: translate(-50%, 0); transition-delay: 0ms; }
 .ar-info-dot { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--argus-text-3); color: var(--argus-text-3); font-size: 9px; font-weight: 700; cursor: help; }
+
+/* ---- Inline code & formulas -------------------------------------------- */
+/* .ar-code-inline: file names, config keys, commands inside prose.
+   .ar-formula: a rule or calculation shown to the user (stop rule, caps, scores). */
+.ar-code-inline {
+  font-family: var(--argus-font-mono); font-size: 0.92em; padding: 1px 5px;
+  background: var(--argus-surface-2); border: 1px solid var(--argus-border); border-radius: var(--argus-radius-sm); color: var(--argus-text);
+}
+.ar-formula {
+  display: inline-block; padding: 3px 8px;
+  font-family: var(--argus-font-mono); font-size: var(--argus-text-code); line-height: var(--argus-leading-code); font-variant-numeric: tabular-nums;
+  color: var(--argus-text-2); background: var(--argus-surface-2); border: 1px solid var(--argus-border); border-radius: var(--argus-radius-sm);
+}
+.ar-formula__name { color: var(--argus-text); font-weight: var(--argus-weight-semibold); }
+.ar-formula var, .ar-formula__var { font-style: normal; color: var(--argus-accent); }
+.ar-formula__result { color: var(--argus-text); font-weight: var(--argus-weight-semibold); }
+.ar-formula sub { font-size: 0.75em; }
 
 /* ---- Code & log blocks --------------------------------------------------- */
 .ar-code {
