@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-density="comfortable">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Argus · Design system</title>
+<link rel="icon" href="assets/logo/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script>
+  // Apply theme/density before paint: ?theme=light|dark|system&density=compact, else localStorage
+  (function () {
+    var q = new URLSearchParams(location.search), d = document.documentElement;
+    var t = q.get("theme") || localStorage.getItem("argus-theme") || "dark";
+    if (t === "system") d.removeAttribute("data-theme"); else d.setAttribute("data-theme", t);
+    d.setAttribute("data-density", q.get("density") || localStorage.getItem("argus-density") || "comfortable");
+  })();
+</script>
+<style>
+  /* showcase-only layout helpers (not part of the system) */
+  .sc-section { display: flex; flex-direction: column; gap: var(--argus-space-3); }
+  .sc-section > header { display: flex; align-items: baseline; gap: var(--argus-space-3); }
+  .sc-section > header p { margin: 0; color: var(--argus-text-3); font-size: var(--argus-text-small); }
+  .sc-matrix { display: grid; grid-template-columns: 84px repeat(6, minmax(0, 1fr)); gap: 8px; align-items: center; }
+  .sc-matrix .ar-caption { text-align: left; }
+  .sc-matrix > button { justify-self: start; }
+  .sc-matrix .sc-rowlab { text-align: left; }
+  .sc-type { display: grid; grid-template-columns: 150px 1fr 190px; gap: 6px 16px; align-items: baseline; }
+  .sc-swatch-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .sc-space { background: var(--argus-brand); height: 12px; border-radius: 2px; }
+  .sc-box { width: 72px; height: 48px; background: var(--argus-surface); border: 1px solid var(--argus-border); display: grid; place-items: center; font-size: var(--argus-text-caption); color: var(--argus-text-3); }
+  .sc-forms { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+  .sc-dialog-stage { position: relative; display: grid; place-items: center; padding: 28px; border-radius: var(--argus-radius-lg); background: var(--argus-backdrop); border: 1px dashed var(--argus-border-strong); }
+  .sc-dialog-stage .ar-dialog { position: static; animation: none; display: block; }
+  .sc-icons { display: flex; gap: 18px; flex-wrap: wrap; color: var(--argus-text-2); }
+  .sc-icons figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: var(--argus-text-caption); color: var(--argus-text-3); width: 84px; text-align: center; }
+  .sc-icons .ar-icon { width: 20px; height: 20px; color: var(--argus-text); }
+  .sc-mono { font-family: var(--argus-font-mono); font-size: var(--argus-text-caption); color: var(--argus-text-3); }
+</style>
+</head>
+<body class="ar-body">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- Lucide icons (ISC licence), 24px grid, stroke 2 -->
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-trending-up" viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></symbol>
+  <symbol id="i-trending-down" viewBox="0 0 24 24"><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
+</svg>
+
+<div class="ar-shell">
+  <!-- App shell header -->
+  <header class="ar-header">
+    <a class="ar-header__logo" href="#" aria-label="Argus home">
+      <img class="ar-logo--dark" src="assets/logo/lockup-dark.svg" alt="Argus">
+      <img class="ar-logo--light" src="assets/logo/lockup-light.svg" alt="Argus">
+    </a>
+    <nav class="ar-tabs" role="tablist" aria-label="Sections">
+      <a class="ar-tab" role="tab" aria-selected="true" href="#">Portfolio</a>
+      <a class="ar-tab is-hover" role="tab" href="#">Watchlist <span class="ar-tab__count">51</span></a>
+      <a class="ar-tab" role="tab" href="#">Reports</a>
+      <a class="ar-tab" role="tab" href="#">Fund Manager</a>
+      <a class="ar-tab" role="tab" href="#">Themes</a>
+      <a class="ar-tab" role="tab" href="#">Runs</a>
+    </nav>
+    <span class="ar-header__spacer"></span>
+    <span class="ar-header__meta">Data as of US close · Fri 6 Nov · 05:00 MYT</span>
+    <div class="ar-header__actions">
+      <div class="ar-segmented" role="group" aria-label="Theme" id="theme-toggle">
+        <button type="button" data-theme-set="light" aria-pressed="false"><svg class="ar-icon ar-icon--sm"><use href="#i-sun"/></svg>Light</button>
+        <button type="button" data-theme-set="dark" aria-pressed="false"><svg class="ar-icon ar-icon--sm"><use href="#i-moon"/></svg>Dark</button>
+        <button type="button" data-theme-set="system" aria-pressed="false"><svg class="ar-icon ar-icon--sm"><use href="#i-monitor"/></svg>Auto</button>
+      </div>
+      <div class="ar-segmented" role="group" aria-label="Density" id="density-toggle">
+        <button type="button" data-density-set="comfortable" aria-pressed="false">Comfortable</button>
+        <button type="button" data-density-set="compact" aria-pressed="false">Compact</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="ar-main">
+    <div class="ar-page-head">
+      <div>
+        <h1 class="ar-h1">Argus design system</h1>
+        <p class="ar-muted" style="margin:4px 0 0">Phase 2 · tokens.css + components.css · Chart A emerald · v2.0 (7 Nov 2026)</p>
+      </div>
+      <div class="ar-row">
+        <button class="ar-btn"><svg class="ar-icon"><use href="#i-download"/></svg>Export CSV</button>
+        <button class="ar-btn ar-btn--primary"><svg class="ar-icon"><use href="#i-play"/></svg>Run free screen</button>
+      </div>
+    </div>
+
+    <!-- Stat tiles -->
+    <section class="ar-grid" aria-label="Portfolio summary">
+      <div class="ar-stat ar-span-3">
+        <span class="ar-stat__label">Portfolio value</span>
+        <span class="ar-stat__value">$48,215.37</span>
+        <span class="ar-stat__delta"><span class="ar-delta ar-delta--gain">+$612.40 · +1.29% <span class="ar-delta__arrow">▲</span></span> <span class="ar-subtle">1D</span></span>
+      </div>
+      <div class="ar-stat ar-span-3">
+        <span class="ar-stat__label">Unrealised P&amp;L</span>
+        <span class="ar-stat__value">+$6,904.12</span>
+        <span class="ar-stat__delta"><span class="ar-delta ar-delta--gain">+16.71% <span class="ar-delta__arrow">▲</span></span> <span class="ar-subtle">since cost</span></span>
+      </div>
+      <div class="ar-stat ar-span-3">
+        <span class="ar-stat__label">Cash <span class="ar-info-dot is-open" data-tooltip="Includes the notional $5,000 top-up" tabindex="0">i</span></span>
+        <span class="ar-stat__value">$15,478.42</span>
+        <span class="ar-stat__delta"><span class="ar-delta ar-delta--flat">32.1% of book <span class="ar-delta__arrow">■</span></span></span>
+      </div>
+      <div class="ar-stat ar-stat--warn ar-span-3">
+        <span class="ar-stat__label">AI exposure</span>
+        <span class="ar-stat__value">55.3%</span>
+        <div class="ar-meter ar-meter--over" aria-label="55.3% of 50% cap"><div class="ar-meter__fill" style="width:55.3%"></div><div class="ar-meter__mark" style="left:50%"></div></div>
+        <span class="ar-stat__meta">Cap 50% · <span style="color:var(--argus-warn)">⚠ 5.3 pts over</span></span>
+      </div>
+    </section>
+
+    <div class="ar-grid">
+      <!-- Holdings table -->
+      <section class="ar-card ar-card--flush ar-span-8">
+        <div class="ar-card__header">
+          <h2 class="ar-card__title">Holdings</h2>
+          <div class="ar-row">
+            <div class="ar-input-group" style="width:200px"><svg class="ar-icon"><use href="#i-search"/></svg><input class="ar-input ar-input--sm" placeholder="Filter tickers"></div>
+            <button class="ar-btn ar-btn--sm ar-btn--ghost"><svg class="ar-icon"><use href="#i-refresh"/></svg>Refresh</button>
+          </div>
+        </div>
+        <div class="ar-card__body ar-table-wrap" style="--ar-table-max-h: 330px">
+          <table class="ar-table">
+            <thead><tr>
+              <th aria-sort="none"><button class="ar-sort">Ticker</button></th>
+              <th class="ar-num" aria-sort="none"><button class="ar-sort">Qty</button></th>
+              <th class="ar-num" aria-sort="none"><button class="ar-sort">Price</button></th>
+              <th class="ar-num" aria-sort="descending"><button class="ar-sort">Value</button></th>
+              <th class="ar-num" aria-sort="none"><button class="ar-sort">1D</button></th>
+              <th class="ar-num" aria-sort="none"><button class="ar-sort">P&amp;L</button></th>
+              <th class="ar-num"><span>Weight</span></th>
+              <th class="ar-num"><span>Stop</span></th>
+              <th>Rating</th>
+            </tr></thead>
+            <tbody>
+              <tr><td class="ar-ticker">NVDA<small>Compute</small></td><td class="ar-num">66</td><td class="ar-num">181.60</td><td class="ar-num">$11,985.60</td><td class="ar-num"><span class="ar-delta ar-delta--gain">+4.12% ▲</span></td><td class="ar-num ar-gain">+$3,412.06</td><td class="ar-num">24.9%</td><td class="ar-num">168.20</td><td><span class="ar-rating ar-rating--overweight">Overweight</span></td></tr>
+              <tr class="is-hover"><td class="ar-ticker">SPY<small>Index</small></td><td class="ar-num">20</td><td class="ar-num">672.10</td><td class="ar-num">$13,442.00</td><td class="ar-num"><span class="ar-delta ar-delta--gain">+0.38% ▲</span></td><td class="ar-num ar-gain">+$1,104.40</td><td class="ar-num">27.9%</td><td class="ar-num">651.00</td><td><span class="ar-rating ar-rating--hold">Hold</span></td></tr>
+              <tr aria-selected="true"><td class="ar-ticker">MSFT<small>Cloud &amp; software</small></td><td class="ar-num">5</td><td class="ar-num">497.10</td><td class="ar-num">$2,485.50</td><td class="ar-num"><span class="ar-delta ar-delta--loss">−1.84% ▼</span></td><td class="ar-num ar-loss">−$118.25</td><td class="ar-num">5.2%</td><td class="ar-num">478.00</td><td><span class="ar-rating ar-rating--hold">Hold</span></td></tr>
+              <tr><td class="ar-ticker">TSLA<small>Physical AI</small></td><td class="ar-num">15</td><td class="ar-num">445.91</td><td class="ar-num">$6,688.65</td><td class="ar-num"><span class="ar-delta ar-delta--loss">−3.27% ▼</span></td><td class="ar-num ar-gain">+$904.15</td><td class="ar-num">13.9%</td><td class="ar-num">419.50</td><td><span class="ar-rating ar-rating--underweight">Underweight</span></td></tr>
+              <tr><td class="ar-ticker">PLTR<small>Cloud &amp; software</small></td><td class="ar-num">20</td><td class="ar-num">182.35</td><td class="ar-num">$3,647.00</td><td class="ar-num"><span class="ar-delta ar-delta--flat">0.00% ■</span></td><td class="ar-num ar-loss">−$212.80</td><td class="ar-num">7.6%</td><td class="ar-num">171.00</td><td><span class="ar-rating ar-rating--sell">Sell</span></td></tr>
+              <tr><td class="ar-ticker">GOOG<small>Cloud &amp; software</small></td><td class="ar-num">14</td><td class="ar-num">284.75</td><td class="ar-num">$3,986.50</td><td class="ar-num"><span class="ar-delta ar-delta--gain">+2.06% ▲</span></td><td class="ar-num ar-gain">+$1,030.68</td><td class="ar-num">8.3%</td><td class="ar-num">266.40</td><td><span class="ar-rating ar-rating--buy">Buy</span></td></tr>
+              <tr class="is-stale"><td class="ar-ticker">NOK<small>Networking</small></td><td class="ar-num">220</td><td class="ar-num">5.12</td><td class="ar-num">$1,126.40</td><td class="ar-num">—</td><td class="ar-num">—</td><td class="ar-num">2.3%</td><td class="ar-num">4.70</td><td><span class="ar-badge ar-badge--warn">⚠ Stale</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="ar-card__footer">Row 2 = hover · row 3 = selected · last row = stale price · sorted by Value ▼</div>
+      </section>
+
+      <!-- Right column: alerts, toasts -->
+      <div class="ar-span-4 ar-stack">
+        <div class="ar-alert ar-alert--warn" role="status"><svg class="ar-icon"><use href="#i-alert"/></svg><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">NVDA earnings in 5 days</p>Position is 24.9% of book; consider a tighter stop before the print.</div></div>
+        <div class="ar-alert ar-alert--info"><svg class="ar-icon"><use href="#i-info"/></svg><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">Saturday full rerun</p>Scheduled for 05:30 MYT after the US close.</div></div>
+        <div class="ar-alert ar-alert--danger" role="alert"><svg class="ar-icon"><use href="#i-x-circle"/></svg><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">Price file empty</p>Yahoo returned no close for 5 Nov. Refetching.<div class="ar-alert__actions"><button class="ar-btn ar-btn--sm">Retry now</button><button class="ar-btn ar-btn--sm ar-btn--ghost">View log</button></div></div></div>
+        <div class="ar-alert ar-alert--ok"><svg class="ar-icon"><use href="#i-check-circle"/></svg><div class="ar-alert__body"><p class="ar-alert__title" style="color:var(--argus-text)">Screen complete</p>51 tickers ranked in 58 s. No paid calls.</div></div>
+        <div class="ar-toast-stack ar-toast-stack--static" aria-live="polite">
+          <div class="ar-toast ar-toast--ok"><svg class="ar-icon"><use href="#i-check-circle"/></svg><div class="ar-toast__body"><div class="ar-toast__title">Book updated</div><div class="ar-toast__text">my_book.json saved · backup created</div></div><button class="ar-btn ar-btn--ghost ar-btn--icon ar-btn--sm" aria-label="Dismiss"><svg class="ar-icon"><use href="#i-x"/></svg></button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Buttons -->
+    <section class="ar-card sc-section">
+      <div class="ar-card__header"><h2 class="ar-card__title">Buttons</h2><span class="ar-caption">Variants × states · sizes sm 26 / md 32 / lg 38 (compact 24 / 28 / 34)</span></div>
+      <div class="ar-card__body ar-stack">
+        <div class="sc-matrix">
+          <span></span><span class="ar-caption">default</span><span class="ar-caption">hover</span><span class="ar-caption">active</span><span class="ar-caption">focus</span><span class="ar-caption">disabled</span><span class="ar-caption">loading</span>
+          <span class="ar-caption sc-rowlab">primary</span>
+          <button class="ar-btn ar-btn--primary">Run analysis</button><button class="ar-btn ar-btn--primary is-hover">Run analysis</button><button class="ar-btn ar-btn--primary is-active">Run analysis</button><button class="ar-btn ar-btn--primary is-focus">Run analysis</button><button class="ar-btn ar-btn--primary" disabled>Run analysis</button><button class="ar-btn ar-btn--primary" aria-busy="true">Running…</button>
+          <span class="ar-caption sc-rowlab">secondary</span>
+          <button class="ar-btn">Export</button><button class="ar-btn is-hover">Export</button><button class="ar-btn is-active">Export</button><button class="ar-btn is-focus">Export</button><button class="ar-btn" disabled>Export</button><button class="ar-btn" aria-busy="true">Exporting…</button>
+          <span class="ar-caption sc-rowlab">ghost</span>
+          <button class="ar-btn ar-btn--ghost">Details</button><button class="ar-btn ar-btn--ghost is-hover">Details</button><button class="ar-btn ar-btn--ghost is-active">Details</button><button class="ar-btn ar-btn--ghost is-focus">Details</button><button class="ar-btn ar-btn--ghost" disabled>Details</button><button class="ar-btn ar-btn--ghost" aria-busy="true">Loading…</button>
+          <span class="ar-caption sc-rowlab">danger</span>
+          <button class="ar-btn ar-btn--danger">Delete run</button><button class="ar-btn ar-btn--danger is-hover">Delete run</button><button class="ar-btn ar-btn--danger is-active">Delete run</button><button class="ar-btn ar-btn--danger is-focus">Delete run</button><button class="ar-btn ar-btn--danger" disabled>Delete run</button><button class="ar-btn ar-btn--danger" aria-busy="true">Deleting…</button>
+        </div>
+        <div class="ar-row">
+          <button class="ar-btn ar-btn--primary ar-btn--sm">Small</button><button class="ar-btn ar-btn--primary">Medium</button><button class="ar-btn ar-btn--primary ar-btn--lg">Large</button>
+          <button class="ar-btn ar-btn--sm"><svg class="ar-icon"><use href="#i-download"/></svg>With icon</button>
+          <button class="ar-btn ar-btn--icon" aria-label="Refresh" data-tooltip="Refresh prices"><svg class="ar-icon"><use href="#i-refresh"/></svg></button>
+          <button class="ar-btn ar-btn--ghost ar-btn--icon" aria-label="Delete"><svg class="ar-icon"><use href="#i-trash"/></svg></button>
+          <span class="ar-caption">Inline spinner</span><span class="ar-spinner" role="status" aria-label="Loading"></span>
+        </div>
+      </div>
+    </section>
+
+    <div class="ar-grid">
+      <!-- Forms -->
+      <section class="ar-card ar-span-7">
+        <div class="ar-card__header"><h2 class="ar-card__title">Form controls</h2></div>
+        <div class="ar-card__body ar-stack">
+          <div class="sc-forms">
+            <label class="ar-field"><span class="ar-label">Default</span><input class="ar-input" placeholder="Ticker"></label>
+            <label class="ar-field"><span class="ar-label">Hover</span><input class="ar-input is-hover" placeholder="Ticker"></label>
+            <label class="ar-field"><span class="ar-label">Focus</span><input class="ar-input is-focus" value="NVDA"></label>
+            <label class="ar-field"><span class="ar-label">Invalid</span><input class="ar-input" aria-invalid="true" value="XYZQ"><span class="ar-error">Unknown ticker</span></label>
+            <label class="ar-field"><span class="ar-label">Disabled</span><input class="ar-input" disabled value="SPY"></label>
+          </div>
+          <div class="sc-forms">
+            <label class="ar-field"><span class="ar-label">Quantity</span><input class="ar-input ar-input--num" value="1,250"><span class="ar-hint">Numbers right-aligned</span></label>
+            <label class="ar-field"><span class="ar-label">Limit price</span><div class="ar-input-group"><input class="ar-input ar-input--num" value="181.60" style="padding-right:40px"><span class="ar-input-group__suffix">USD</span></div></label>
+            <label class="ar-field"><span class="ar-label">Run type</span><select class="ar-select"><option>Tiered (holdings + top 8)</option><option>Full</option><option>Free screen</option></select></label>
+            <label class="ar-field"><span class="ar-label">Model</span><select class="ar-select" disabled><option>Sol (deep)</option></select></label>
+            <label class="ar-field"><span class="ar-label">Search</span><div class="ar-input-group"><svg class="ar-icon"><use href="#i-search"/></svg><input class="ar-input" placeholder="Search…"></div></label>
+          </div>
+          <div class="ar-row" style="gap:20px">
+            <label class="ar-check"><input type="checkbox" checked> Include ETFs</label>
+            <label class="ar-check"><input type="checkbox"> Earnings only</label>
+            <label class="ar-check"><input type="checkbox" id="ind"> Partial</label>
+            <label class="ar-check"><input type="checkbox" disabled> Disabled</label>
+            <label class="ar-switch"><input type="checkbox" role="switch" checked> Alerts on</label>
+            <label class="ar-switch"><input type="checkbox" role="switch"> Auto-run</label>
+            <label class="ar-switch"><input type="checkbox" role="switch" disabled> Locked</label>
+          </div>
+          <div class="ar-tabs ar-tabs--inline" role="tablist">
+            <button class="ar-tab" role="tab" aria-selected="true">Summary</button>
+            <button class="ar-tab is-hover" role="tab">Analysts <span class="ar-tab__count">4</span></button>
+            <button class="ar-tab" role="tab">Risk debate</button>
+            <button class="ar-tab" role="tab">Raw JSON</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Badges + tooltip -->
+      <section class="ar-card ar-span-5">
+        <div class="ar-card__header"><h2 class="ar-card__title">Badges &amp; tooltip</h2></div>
+        <div class="ar-card__body ar-stack">
+          <div class="ar-row"><span class="ar-caption" style="width:56px">Ratings</span><span class="ar-rating ar-rating--buy">Buy</span><span class="ar-rating ar-rating--overweight">Overweight</span><span class="ar-rating ar-rating--hold">Hold</span><span class="ar-rating ar-rating--underweight">Underweight</span><span class="ar-rating ar-rating--sell">Sell</span></div>
+          <div class="ar-row"><span class="ar-caption" style="width:56px">Status</span><span class="ar-badge ar-badge--info"><span class="ar-badge__dot"></span>Live</span><span class="ar-badge ar-badge--warn">⚠ Stale</span><span class="ar-badge ar-badge--ok">✓ Done</span><span class="ar-badge ar-badge--danger">✕ Failed</span><span class="ar-badge ar-badge--neutral">Queued</span><span class="ar-badge ar-badge--accent">AI · memory</span></div>
+          <div class="ar-row"><span class="ar-caption" style="width:56px">Deltas</span><span class="ar-delta ar-delta--gain">+2.41% ▲</span><span class="ar-delta ar-delta--loss">−1.87% ▼</span><span class="ar-delta ar-delta--flat">0.00% ■</span><span class="ar-delta ar-delta--gain">+$1,204.50</span><span class="ar-delta ar-delta--loss">−$86.10</span></div>
+          <div class="ar-row" style="padding-top:64px"><span class="ar-caption" style="width:56px">Tooltip</span><button class="ar-btn ar-btn--sm is-open" data-tooltip="Stop = min(2.5 × ATR below price, 20-day low)">Stop rule</button><span class="ar-caption">Shortcut <kbd class="ar-kbd">R</kbd> run · <kbd class="ar-kbd">/</kbd> search</span></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="ar-grid">
+      <!-- Dialog -->
+      <section class="ar-card ar-span-6">
+        <div class="ar-card__header"><h2 class="ar-card__title">Confirm dialog (paid run)</h2></div>
+        <div class="ar-card__body">
+          <div class="sc-dialog-stage">
+            <div class="ar-dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-t">
+              <div class="ar-dialog__header"><div class="ar-dialog__icon"><svg class="ar-icon"><use href="#i-wallet"/></svg></div><div><h3 class="ar-dialog__title" id="dlg-t">Start a paid tiered run?</h3><span class="ar-caption">Uses OpenRouter credits. Can't be undone once started.</span></div></div>
+              <div class="ar-dialog__body">
+                <dl class="ar-dialog__summary"><dt>Tickers</dt><dd>12 holdings + top 8</dd><dt>Models</dt><dd>Luna · Sol · Opus (risk)</dd><dt>Estimated cost</dt><dd>≈ $3.40</dd><dt>Market</dt><dd>Closed · data as of 6 Nov</dd></dl>
+                <label class="ar-check"><input type="checkbox" checked> I understand this run costs money</label>
+              </div>
+              <div class="ar-dialog__actions"><button class="ar-btn ar-btn--ghost">Cancel</button><button class="ar-btn ar-btn--primary is-focus">Start paid run</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Log + code -->
+      <section class="ar-card ar-span-6">
+        <div class="ar-card__header"><h2 class="ar-card__title">Run log &amp; code</h2><span class="ar-badge ar-badge--info"><span class="ar-badge__dot"></span>Running</span></div>
+        <div class="ar-card__body ar-stack">
+          <div class="ar-log" role="log">
+            <div class="ar-log__line ar-log__line--info"><span class="ar-log__ts">05:30:02</span><span class="ar-log__lvl">INFO</span><span class="ar-log__msg">tiered run started · date=2026-11-06 (America/New_York)</span></div>
+            <div class="ar-log__line ar-log__line--info"><span class="ar-log__ts">05:30:04</span><span class="ar-log__lvl">INFO</span><span class="ar-log__msg">screen: 51 tickers → top 8 [V, WMT, MCD, PG, NEE, LLY, XLV, JPM]</span></div>
+            <div class="ar-log__line ar-log__line--warn"><span class="ar-log__ts">05:31:10</span><span class="ar-log__lvl">WARN</span><span class="ar-log__msg">NVDA earnings in 5 days · flag added</span></div>
+            <div class="ar-log__line ar-log__line--error"><span class="ar-log__ts">05:31:42</span><span class="ar-log__lvl">ERROR</span><span class="ar-log__msg">polymarket: empty response, skipping</span></div>
+            <div class="ar-log__line ar-log__line--ok"><span class="ar-log__ts">05:38:55</span><span class="ar-log__lvl">DONE</span><span class="ar-log__msg">20 reports · cost $3.12 · 8m53s</span></div>
+          </div>
+<pre class="ar-code"><span class="tok-com"># targets.json</span>
+{ <span class="tok-key">"ai_cap"</span>: <span class="tok-num">0.50</span>, <span class="tok-key">"position_cap"</span>: <span class="tok-num">0.12</span>, <span class="tok-key">"stop_rule"</span>: <span class="tok-str">"min(2.5*ATR, low20)"</span> }</pre>
+        </div>
+      </section>
+    </div>
+
+    <div class="ar-grid">
+      <!-- Empty + skeleton -->
+      <section class="ar-card ar-span-4">
+        <div class="ar-card__header"><h2 class="ar-card__title">Empty state</h2></div>
+        <div class="ar-card__body ar-empty">
+          <div class="ar-empty__icon"><svg class="ar-icon ar-icon--lg"><use href="#i-inbox"/></svg></div>
+          <p class="ar-empty__title">No trades in this plan</p>
+          <p class="ar-empty__text">The fund manager kept every position. Run the Saturday rerun to refresh.</p>
+          <button class="ar-btn ar-btn--sm">View last plan</button>
+        </div>
+      </section>
+      <section class="ar-card ar-span-4">
+        <div class="ar-card__header"><h2 class="ar-card__title">Loading skeleton</h2><span class="ar-spinner" aria-label="Loading"></span></div>
+        <div class="ar-card__body ar-stack" aria-busy="true">
+          <span class="ar-skeleton ar-skeleton--text" style="width:40%"></span>
+          <span class="ar-skeleton ar-skeleton--value"></span>
+          <span class="ar-skeleton ar-skeleton--text" style="width:30%"></span>
+          <div><span class="ar-skeleton ar-skeleton--row"></span><span class="ar-skeleton ar-skeleton--row"></span><span class="ar-skeleton ar-skeleton--row"></span></div>
+        </div>
+      </section>
+      <section class="ar-card ar-span-4">
+        <div class="ar-card__header"><h2 class="ar-card__title">Icons · Lucide</h2><span class="ar-caption">16 px UI · stroke 2 · currentColor</span></div>
+        <div class="ar-card__body sc-icons">
+          <figure><svg class="ar-icon"><use href="#i-search"/></svg>search</figure><figure><svg class="ar-icon"><use href="#i-refresh"/></svg>refresh-cw</figure><figure><svg class="ar-icon"><use href="#i-play"/></svg>play</figure><figure><svg class="ar-icon"><use href="#i-download"/></svg>download</figure>
+          <figure><svg class="ar-icon"><use href="#i-alert"/></svg>triangle-alert</figure><figure><svg class="ar-icon"><use href="#i-info"/></svg>info</figure><figure><svg class="ar-icon"><use href="#i-check-circle"/></svg>circle-check</figure><figure><svg class="ar-icon"><use href="#i-eye"/></svg>eye</figure>
+        </div>
+      </section>
+    </div>
+
+    <!-- Foundations -->
+    <div class="ar-grid">
+      <section class="ar-card ar-span-7">
+        <div class="ar-card__header"><h2 class="ar-card__title">Type scale</h2><span class="ar-caption">Inter (UI, numbers with tabular-nums) · JetBrains Mono (code, logs)</span></div>
+        <div class="ar-card__body sc-type">
+          <span class="ar-caption">display · 32/40 · 600</span><span class="ar-display">Argus</span><span class="ar-caption">--argus-text-display</span>
+          <span class="ar-caption">h1 · 24/32 · 600</span><span class="ar-h1">Portfolio</span><span class="ar-caption">--argus-text-h1</span>
+          <span class="ar-caption">h2 · 20/28 · 600</span><span class="ar-h2">Fund manager plan</span><span class="ar-caption">--argus-text-h2</span>
+          <span class="ar-caption">h3 · 16/24 · 600</span><span class="ar-h3">Risk debate summary</span><span class="ar-caption">--argus-text-h3</span>
+          <span class="ar-caption">h4 · 12/16 · 600 caps</span><span class="ar-h4">Section label</span><span class="ar-caption">--argus-text-h4</span>
+          <span class="ar-caption">body-lg · 14/22 · 400</span><span class="ar-body-lg">Defensive names lead; AI layers lag SPY by 20–30 pts.</span><span class="ar-caption">--argus-text-body-lg</span>
+          <span class="ar-caption">body · 13/20 · 400</span><span class="ar-body">The plan trims NVDA into strength and keeps the cash buffer.</span><span class="ar-caption">--argus-text-body</span>
+          <span class="ar-caption">small · 12/16 · 400</span><span class="ar-small">Updated 05:38 MYT · 20 reports</span><span class="ar-caption">--argus-text-small</span>
+          <span class="ar-caption">caption · 11/14 · 400</span><span class="ar-caption" style="color:var(--argus-text-2)">Source: Yahoo Finance, FRED</span><span class="ar-caption">--argus-text-caption</span>
+          <span class="ar-caption">data-lg · 24/32 · 600</span><span class="ar-data-lg">$48,215.37</span><span class="ar-caption">--argus-text-data-lg</span>
+          <span class="ar-caption">data · 13/20 · 500 tnum</span><span class="ar-data">1,111.11 · 9,999.99 · −0.84%</span><span class="ar-caption">--argus-text-data</span>
+          <span class="ar-caption">code · 12/18 · mono</span><code>python -m argus.screen --tiered</code><span class="ar-caption">--argus-text-code</span>
+        </div>
+      </section>
+      <section class="ar-card ar-span-5">
+        <div class="ar-card__header"><h2 class="ar-card__title">Space · radius · elevation</h2></div>
+        <div class="ar-card__body ar-stack">
+          <div class="ar-stack" style="gap:4px">
+            <div class="ar-row"><span class="sc-mono" style="width:84px">space-1 4</span><span class="sc-space" style="width:4px"></span></div>
+            <div class="ar-row"><span class="sc-mono" style="width:84px">space-2 8</span><span class="sc-space" style="width:8px"></span></div>
+            <div class="ar-row"><span class="sc-mono" style="width:84px">space-3 12</span><span class="sc-space" style="width:12px"></span></div>
+            <div class="ar-row"><span class="sc-mono" style="width:84px">space-4 16</span><span class="sc-space" style="width:16px"></span></div>
+            <div class="ar-row"><span class="sc-mono" style="width:84px">space-6 24</span><span class="sc-space" style="width:24px"></span></div>
+            <div class="ar-row"><span class="sc-mono" style="width:84px">space-8 32</span><span class="sc-space" style="width:32px"></span></div>
+            <div class="ar-row"><span class="sc-mono" style="width:84px">space-12 48</span><span class="sc-space" style="width:48px"></span></div>
+          </div>
+          <div class="sc-swatch-row">
+            <div class="sc-box" style="border-radius:var(--argus-radius-sm)">sm 4</div><div class="sc-box" style="border-radius:var(--argus-radius-md)">md 6</div><div class="sc-box" style="border-radius:var(--argus-radius-lg)">lg 10</div><div class="sc-box" style="border-radius:var(--argus-radius-xl)">xl 14</div><div class="sc-box" style="border-radius:var(--argus-radius-full);width:48px">full</div>
+          </div>
+          <div class="sc-swatch-row">
+            <div class="sc-box" style="box-shadow:var(--argus-shadow-sm);border-radius:8px">shadow-sm</div><div class="sc-box" style="box-shadow:var(--argus-shadow-md);border-radius:8px">shadow-md</div><div class="sc-box" style="box-shadow:var(--argus-shadow-lg);border-radius:8px">shadow-lg</div><div class="sc-box" style="box-shadow:var(--argus-shadow-overlay);border-radius:8px">overlay</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+  (function () {
+    var d = document.documentElement;
+    document.getElementById("ind").indeterminate = true;
+    function sync() {
+      var t = d.getAttribute("data-theme") || "system", den = d.getAttribute("data-density");
+      document.querySelectorAll("[data-theme-set]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.themeSet === t)); });
+      document.querySelectorAll("[data-density-set]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.densitySet === den)); });
+    }
+    document.querySelectorAll("[data-theme-set]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var t = b.dataset.themeSet;
+        if (t === "system") d.removeAttribute("data-theme"); else d.setAttribute("data-theme", t);
+        localStorage.setItem("argus-theme", t); sync();
+      });
+    });
+    document.querySelectorAll("[data-density-set]").forEach(function (b) {
+      b.addEventListener("click", function () { d.setAttribute("data-density", b.dataset.densitySet); localStorage.setItem("argus-density", b.dataset.densitySet); sync(); });
+    });
+    sync();
+  })();
+</script>
+</body>
+</html>

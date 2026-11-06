@@ -351,3 +351,170 @@
 .argus-loss { color: var(--argus-loss); }
 .argus-flat { color: var(--argus-flat); }
 :focus-visible { outline: 2px solid var(--argus-focus-ring); outline-offset: 2px; }
+/* ==========================================================================
+   Argus foundations v2 (design system phase 2) — type, space, radii,
+   borders, elevation, motion, z-index, layout, density.
+   Colour tokens above this block are unchanged from palette v1.1.
+   ========================================================================== */
+
+/* ---- Fonts: self-hosted, SIL OFL 1.1 (see fonts/*-OFL.txt). Latin subset, variable. ---- */
+@font-face { font-family: "Inter"; src: url("fonts/InterVariable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/InterVariable-Italic.woff2") format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMonoVariable.woff2") format("woff2"); font-weight: 100 800; font-style: normal; font-display: swap; }
+
+:root {
+  /* Families */
+  --argus-font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --argus-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --argus-font-numeric: var(--argus-font-sans); /* Inter + tabular-nums; mono only for code/logs/IDs */
+
+  /* Weights */
+  --argus-weight-regular: 400;
+  --argus-weight-medium: 500;
+  --argus-weight-semibold: 600;
+  --argus-weight-bold: 700;
+
+  /* Type scale: size / line-height (px, tuned for a dense desktop UI) */
+  --argus-text-display: 32px;  --argus-leading-display: 40px;
+  --argus-text-h1: 24px;       --argus-leading-h1: 32px;
+  --argus-text-h2: 20px;       --argus-leading-h2: 28px;
+  --argus-text-h3: 16px;       --argus-leading-h3: 24px;
+  --argus-text-h4: 12px;       --argus-leading-h4: 16px;   /* uppercase section label */
+  --argus-text-body-lg: 14px;  --argus-leading-body-lg: 22px;
+  --argus-text-body: 13px;     --argus-leading-body: 20px;
+  --argus-text-small: 12px;    --argus-leading-small: 16px;
+  --argus-text-caption: 11px;  --argus-leading-caption: 14px;
+  --argus-text-data: 13px;     --argus-leading-data: 20px;  /* table numbers */
+  --argus-text-data-lg: 24px;  --argus-leading-data-lg: 32px; /* stat tile value */
+  --argus-text-code: 12px;     --argus-leading-code: 18px;
+  --argus-tracking-tight: -0.011em; /* display, h1, data-lg */
+  --argus-tracking-caps: 0.06em;    /* h4, captions in caps */
+
+  /* Spacing: 4px base */
+  --argus-space-0: 0;
+  --argus-space-px: 1px;
+  --argus-space-0-5: 2px;
+  --argus-space-1: 4px;
+  --argus-space-1-5: 6px;
+  --argus-space-2: 8px;
+  --argus-space-3: 12px;
+  --argus-space-4: 16px;
+  --argus-space-5: 20px;
+  --argus-space-6: 24px;
+  --argus-space-8: 32px;
+  --argus-space-10: 40px;
+  --argus-space-12: 48px;
+  --argus-space-16: 64px;
+
+  /* Radii */
+  --argus-radius-xs: 3px;   /* checkbox, kbd */
+  --argus-radius-sm: 4px;   /* badges (status), small controls */
+  --argus-radius-md: 6px;   /* buttons, inputs, tabs */
+  --argus-radius-lg: 10px;  /* cards, alerts, tables */
+  --argus-radius-xl: 14px;  /* dialogs */
+  --argus-radius-full: 999px; /* pills, toggles, rating badges */
+
+  /* Borders */
+  --argus-border-width: 1px;
+  --argus-border-width-strong: 2px; /* selection indicators, focus */
+  --argus-focus-width: 2px;
+  --argus-focus-offset: 2px;
+
+  /* Motion */
+  --argus-dur-instant: 80ms;   /* hover colour */
+  --argus-dur-fast: 120ms;     /* press, toggle */
+  --argus-dur-base: 180ms;     /* tooltip, tab indicator, toast in */
+  --argus-dur-slow: 280ms;     /* dialog, drawer */
+  --argus-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --argus-ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --argus-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Z-index */
+  --argus-z-base: 0;
+  --argus-z-sticky: 10;    /* sticky table header */
+  --argus-z-header: 20;    /* app header */
+  --argus-z-dropdown: 30;
+  --argus-z-overlay: 40;   /* dialog backdrop */
+  --argus-z-modal: 50;
+  --argus-z-toast: 60;
+  --argus-z-tooltip: 70;
+
+  /* Breakpoints (reference only — CSS vars can't be used in @media):
+     sm 640px · md 960px · lg 1280px · xl 1600px. Design target: 1440–1920 desktop. */
+  --argus-bp-sm: 640px;
+  --argus-bp-md: 960px;
+  --argus-bp-lg: 1280px;
+  --argus-bp-xl: 1600px;
+
+  /* Layout */
+  --argus-header-h: 52px;
+  --argus-content-max: 1680px;
+  --argus-grid-cols: 12;
+
+  /* Density: comfortable (default) */
+  --argus-page-pad: 24px;
+  --argus-gap: 16px;          /* between cards */
+  --argus-card-pad: 16px;
+  --argus-control-h: 32px;    /* md buttons/inputs */
+  --argus-control-h-sm: 26px;
+  --argus-control-h-lg: 38px;
+  --argus-control-px: 12px;
+  --argus-row-h: 36px;        /* table rows */
+  --argus-cell-px: 12px;
+  --argus-icon-size: 16px;
+}
+
+[data-density="compact"] {
+  --argus-page-pad: 16px;
+  --argus-gap: 12px;
+  --argus-card-pad: 12px;
+  --argus-control-h: 28px;
+  --argus-control-h-sm: 24px;
+  --argus-control-h-lg: 34px;
+  --argus-control-px: 10px;
+  --argus-row-h: 28px;
+  --argus-cell-px: 8px;
+  --argus-text-body: 12px;  --argus-leading-body: 18px;
+  --argus-text-data: 12px;  --argus-leading-data: 18px;
+  --argus-icon-size: 14px;
+}
+
+/* Elevation: light uses soft shadows; dark relies on lighter surfaces + borders, shadows are deeper and subtle */
+:root, [data-theme="dark"] {
+  --argus-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --argus-shadow-md: 0 4px 12px rgb(0 0 0 / 0.40);
+  --argus-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.50);
+  --argus-shadow-overlay: 0 24px 64px rgb(0 0 0 / 0.60);
+  --argus-backdrop: rgb(3 6 12 / 0.66);
+  --argus-skeleton-a: #1A2132;
+  --argus-skeleton-b: #263043;
+}
+[data-theme="light"] {
+  --argus-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+  --argus-shadow-md: 0 4px 12px rgb(15 23 42 / 0.08), 0 1px 3px rgb(15 23 42 / 0.06);
+  --argus-shadow-lg: 0 12px 32px rgb(15 23 42 / 0.12);
+  --argus-shadow-overlay: 0 24px 64px rgb(15 23 42 / 0.20);
+  --argus-backdrop: rgb(15 23 42 / 0.40);
+  --argus-skeleton-a: #F1F5F9;
+  --argus-skeleton-b: #E2E8F0;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --argus-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+    --argus-shadow-md: 0 4px 12px rgb(15 23 42 / 0.08), 0 1px 3px rgb(15 23 42 / 0.06);
+    --argus-shadow-lg: 0 12px 32px rgb(15 23 42 / 0.12);
+    --argus-shadow-overlay: 0 24px 64px rgb(15 23 42 / 0.20);
+    --argus-backdrop: rgb(15 23 42 / 0.40);
+    --argus-skeleton-a: #F1F5F9;
+    --argus-skeleton-b: #E2E8F0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --argus-dur-instant: 0ms;
+    --argus-dur-fast: 0ms;
+    --argus-dur-base: 0ms;
+    --argus-dur-slow: 0ms;
+  }
+}
