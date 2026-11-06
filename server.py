@@ -360,7 +360,7 @@ def config():
         "flags": _script_flags(),
         "minutes_per_ticker": 3,
         "fund_manager_calls": 5,
-        "models_note": "Fund manager and aggressive: openai/gpt-6.1-sol. Conservative and neutral: openai/gpt-6-luna. Opus is not a default.",
+        "models_note": "Fund manager and aggressive: openai/gpt-6.1-sol. Conservative: anthropic/claude-opus-5.5. Neutral: openai/gpt-6-luna.",
     }
 
 
@@ -712,7 +712,7 @@ def runs_start(body: RunRequest, request: Request):
         except Exception:
             n = 0
     # Observed per-ticker runs were about 2.5 minutes. The fund-manager step is 5 calls
-    # (draft, three risk voices, final), not one. Opus is not in the default set.
+    # (draft, three risk voices, final). The conservative voice is Opus.
     est_min = int(round(n * 2.5)) if body.run_agents else (0 if body.no_llm else 9)
 
     args = [

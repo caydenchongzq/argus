@@ -381,7 +381,7 @@ function updateRunWarn() {
   } else if (agents) {
     msg = `Agent runs: ~${n} ticker(s) × ~2.5 min ≈ ${Math.round(n * 2.5)} minutes, plus OpenRouter fees. The fund manager step after that is 5 calls.`;
   } else {
-    msg = "Fund manager only: 5 calls (draft, aggressive, conservative, neutral, final), about 9 minutes. Conservative and neutral default to Luna, not Opus. The last Opus committee was about $1.20.";
+    msg = "Fund manager only: 5 calls (draft, aggressive, conservative, neutral, final), about 9 minutes. Conservative is Opus; neutral is Luna. The last committee with that Opus seat was about $1.20.";
   }
   $("#runWarn").textContent = msg;
 }
@@ -477,7 +477,7 @@ $("#btnStartRun").addEventListener("click", () => {
   let est;
   if (body.no_llm && !body.run_agents) est = "under ~1 min, free";
   else if (body.run_agents) est = `~${Math.round(n * 2.5)} min + model fees, then 5 fund-manager calls`;
-  else est = "~9 min, 5 model calls (Luna for conservative and neutral; Opus is not the default)";
+  else est = "~9 min, 5 model calls (Opus for conservative, Luna for neutral)";
   state.pendingRun = body;
   $("#confirmText").textContent = `Start this run? Estimate: ${est}. Tickers: ${body.tickers.length ? body.tickers.join(", ") : "(default / none)"}.`;
   $("#confirmModal").classList.remove("hidden");
