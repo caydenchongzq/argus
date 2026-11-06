@@ -1,297 +1,405 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-density="comfortable">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Argus — TradingAgents Dashboard</title>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+  <link rel="icon" data-argus-favicon href="/static/argus-brand/assets/logo/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/static/argus-brand/assets/logo/favicon.ico" sizes="16x16 32x32" />
+  <link rel="apple-touch-icon" href="/static/argus-brand/assets/logo/apple-touch-icon-180.png" />
+  <link rel="stylesheet" href="/static/argus-brand/tokens.css" />
+  <link rel="stylesheet" href="/static/argus-brand/components.css" />
   <link rel="stylesheet" href="/static/styles.css" />
+  <script src="/static/theme.js"></script>
   <!-- marked 15.0.12, DOMPurify 3.2.4, Chart.js 4.4.7. Pinned local copies, not the CDN. -->
   <script src="/static/vendor/purify.min.js"></script>
   <script src="/static/vendor/marked.min.js"></script>
   <script src="/static/vendor/chart.umd.min.js"></script>
 </head>
-<body>
-  <div class="app">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">A</div>
-        <div>
-          <h1>Argus</h1>
-          <p>TradingAgents desk</p>
-        </div>
+<body class="ar-body">
+  <div class="ar-shell">
+    <header class="ar-header">
+      <div class="ar-header__logo" role="img" aria-label="Argus">
+        <img class="ar-logo--dark" src="/static/argus-brand/assets/logo/lockup-dark.svg" alt="" />
+        <img class="ar-logo--light" src="/static/argus-brand/assets/logo/lockup-light.svg" alt="" />
       </div>
-      <nav class="nav" id="nav">
-        <button data-tab="portfolio" class="active"><span class="ico">◈</span> Portfolio</button>
-        <button data-tab="watchlist"><span class="ico">◎</span> Watchlist</button>
-        <button data-tab="reports"><span class="ico">☰</span> Reports</button>
-        <button data-tab="fund"><span class="ico">◉</span> Fund manager</button>
-        <button data-tab="themes"><span class="ico">✶</span> Themes</button>
-        <button data-tab="runs"><span class="ico">▶</span> Runs</button>
+      <nav class="ar-tabs" id="nav" role="tablist" aria-label="Sections">
+        <button type="button" class="ar-tab" data-tab="portfolio" role="tab" aria-selected="true">Portfolio</button>
+        <button type="button" class="ar-tab" data-tab="watchlist" role="tab" aria-selected="false">Watchlist</button>
+        <button type="button" class="ar-tab" data-tab="reports" role="tab" aria-selected="false">Reports</button>
+        <button type="button" class="ar-tab" data-tab="fund" role="tab" aria-selected="false">Fund Manager</button>
+        <button type="button" class="ar-tab" data-tab="themes" role="tab" aria-selected="false">Themes</button>
+        <button type="button" class="ar-tab" data-tab="runs" role="tab" aria-selected="false">Runs</button>
       </nav>
-      <div class="sidebar-foot">
-        <div class="pill" id="healthPill">checking…</div>
-        <div>Local only · 127.0.0.1<br/>Decision support, not advice.</div>
-      </div>
-    </aside>
-
-    <main class="main">
-      <!-- PORTFOLIO -->
-      <section id="tab-portfolio" class="tab">
-        <div class="topbar">
-          <div>
-            <h2>Portfolio</h2>
-            <div class="sub" id="pfSub">Holdings, weights vs targets</div>
-          </div>
-          <div class="badge"><span class="dot"></span> <span id="pfAsOf">—</span></div>
+      <span class="ar-header__spacer"></span>
+      <div class="ar-header__cluster">
+        <span class="ar-header__meta" id="headerAsOf">Data as of —</span>
+        <span class="ar-badge ar-badge--neutral" id="healthPill"><span class="ar-badge__dot"></span> Checking</span>
+        <div class="ar-segmented" role="group" aria-label="Theme" id="themeToggle">
+          <button type="button" data-theme-set="light" aria-pressed="false"><svg class="ar-icon ar-icon--sm" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#sun"/></svg>Light</button>
+          <button type="button" data-theme-set="dark" aria-pressed="false"><svg class="ar-icon ar-icon--sm" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#moon"/></svg>Dark</button>
+          <button type="button" data-theme-set="system" aria-pressed="false"><svg class="ar-icon ar-icon--sm" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#monitor"/></svg>Auto</button>
         </div>
-        <div class="cards" id="pfCards"></div>
-        <div class="grid-2">
-          <div class="panel">
-            <h3>Holdings</h3>
-            <div style="overflow:auto">
-              <table id="pfTable">
+        <div class="ar-segmented" role="group" aria-label="Density" id="densityToggle">
+          <button type="button" data-density-set="comfortable" aria-pressed="true">Comfortable</button>
+          <button type="button" data-density-set="compact" aria-pressed="false">Compact</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="ar-main">
+      <section id="tab-portfolio" class="ar-page" role="tabpanel">
+        <div class="ar-page-head">
+          <div>
+            <h1 class="ar-h1">Portfolio</h1>
+            <p class="ar-muted" id="pfSub">Holdings, weights vs targets</p>
+          </div>
+        </div>
+        <div class="ar-grid" id="pfCards"></div>
+        <div class="ar-grid">
+          <section class="ar-card ar-card--flush ar-span-8">
+            <div class="ar-card__header"><h2 class="ar-card__title">Holdings</h2></div>
+            <div class="ar-table-wrap">
+              <table class="ar-table" id="pfTable">
                 <thead>
                   <tr>
                     <th>Ticker</th><th>Name</th><th>Sub-theme</th>
-                    <th class="num">Qty</th><th class="num">Avg</th><th class="num">Price</th>
-                    <th class="num">Value</th><th class="num">P&amp;L</th>
-                    <th class="num">Weight</th><th class="num">Target</th>
+                    <th class="ar-num">Qty</th><th class="ar-num">Avg (USD)</th><th class="ar-num">Price (USD)</th>
+                    <th class="ar-num">Value (USD)</th><th class="ar-num">P&amp;L</th>
+                    <th class="ar-num">Weight</th><th class="ar-num">Target</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
               </table>
             </div>
-          </div>
-          <div class="panel">
-            <h3>Current vs target</h3>
-            <div class="chart-wrap"><canvas id="weightsChart"></canvas></div>
-          </div>
+          </section>
+          <section class="ar-card ar-span-4">
+            <div class="ar-card__header"><h2 class="ar-card__title">Current vs target</h2></div>
+            <div class="ar-card__body"><div class="ar-chart"><canvas id="weightsChart"></canvas></div></div>
+          </section>
         </div>
-        <div class="panel" style="margin-top:14px">
-          <h3>AI sub-themes</h3>
-          <div class="sub" id="aiSubNote">Direct holding weight. The look-through warn cap is separate.</div>
-          <div style="overflow:auto">
-            <table id="aiSubTable">
-              <thead><tr><th>Sub-theme</th><th>Holdings</th><th class="num">Weight</th><th class="num">Value</th></tr></thead>
+        <section class="ar-card ar-card--flush">
+          <div class="ar-card__header">
+            <h2 class="ar-card__title">AI sub-themes</h2>
+          </div>
+          <div class="ar-card__body">
+            <p class="ar-subtle" id="aiSubNote">Direct holding weight. The look-through warn cap is separate.</p>
+          </div>
+          <div class="ar-table-wrap">
+            <table class="ar-table" id="aiSubTable">
+              <thead><tr><th>Sub-theme</th><th>Holdings</th><th class="ar-num">Weight</th><th class="ar-num">Value (USD)</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
+        </section>
+      </section>
+
+      <section id="tab-watchlist" class="ar-page hidden" role="tabpanel">
+        <div class="ar-page-head">
+          <div>
+            <h1 class="ar-h1">Watchlist</h1>
+            <p class="ar-muted">Candidates outside the book. Edits <span class="ar-code-inline">data/watchlist.json</span> and keeps a backup.</p>
+          </div>
+        </div>
+        <section class="ar-card">
+          <div class="ar-card__header"><h2 class="ar-card__title">Add a candidate</h2></div>
+          <div class="ar-card__body ar-stack">
+            <div class="ar-add-form">
+              <div class="ar-field">
+                <label class="ar-label" for="wlTicker">Ticker</label>
+                <input class="ar-input" id="wlTicker" autocomplete="off" />
+              </div>
+              <div class="ar-field">
+                <label class="ar-label" for="wlSector">Sector</label>
+                <input class="ar-input" id="wlSector" autocomplete="off" />
+              </div>
+              <div class="ar-field">
+                <label class="ar-label" for="wlType">Type</label>
+                <select class="ar-select" id="wlType"><option value="stock">stock</option><option value="etf">etf</option></select>
+              </div>
+              <div class="ar-field">
+                <label class="ar-label" for="wlSub">Sub-theme</label>
+                <select class="ar-select" id="wlSub">
+                  <option value="">None</option>
+                  <option value="ai_energy">AI energy</option>
+                  <option value="ai_memory_storage">AI memory &amp; storage</option>
+                  <option value="ai_compute_semis">AI compute &amp; semis</option>
+                  <option value="ai_network_fibre">AI network &amp; fibre</option>
+                  <option value="ai_cloud_software">AI cloud &amp; software</option>
+                  <option value="physical_ai">Physical AI</option>
+                </select>
+              </div>
+              <button class="ar-btn ar-btn--primary" id="wlAdd" type="button">
+                <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#plus"/></svg>
+                <span class="ar-btn__label">Add</span>
+              </button>
+            </div>
+            <div id="wlErr" class="ar-alert ar-alert--danger hidden" role="alert">
+              <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#circle-x"/></svg>
+              <div class="ar-alert__body" id="wlErrText"></div>
+            </div>
+          </div>
+        </section>
+        <section class="ar-card ar-card--flush">
+          <div class="ar-card__header"><h2 class="ar-card__title">AI sub-themes</h2></div>
+          <div class="ar-card__body"><p class="ar-subtle">Candidates in each bucket. Exposure is on the Portfolio tab, because these names are not held.</p></div>
+          <div class="ar-table-wrap">
+            <table class="ar-table" id="wlSubTable">
+              <thead><tr><th>Sub-theme</th><th>Candidates</th><th class="ar-num">Count</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="ar-card ar-card--flush">
+          <div class="ar-card__header"><h2 class="ar-card__title">Candidates</h2></div>
+          <div class="ar-table-wrap">
+            <table class="ar-table" id="wlTable">
+              <thead><tr><th>Ticker</th><th>Sector</th><th>Type</th><th>Sub-theme</th><th class="ar-num"><span class="ar-sr-only">Remove</span></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="tab-reports" class="ar-page hidden" role="tabpanel">
+        <div class="ar-page-head">
+          <div>
+            <h1 class="ar-h1">Reports</h1>
+            <p class="ar-muted">Per-stock TradingAgents runs</p>
+          </div>
+          <div class="ar-field ar-field--filter">
+            <label class="ar-label" for="repFilter">Ticker</label>
+            <select class="ar-select" id="repFilter"><option value="">All tickers</option></select>
+          </div>
+        </div>
+        <div class="ar-grid">
+          <section class="ar-card ar-span-4">
+            <div class="ar-card__header"><h2 class="ar-card__title">History</h2></div>
+            <div class="ar-card__body"><div class="ar-list" id="repList" role="listbox" aria-label="Reports"></div></div>
+          </section>
+          <section class="ar-card ar-span-8">
+            <div class="ar-card__header"><h2 class="ar-card__title" id="repTitle">Select a report</h2></div>
+            <div class="ar-card__body ar-stack">
+              <div id="repMeta" class="ar-subtle"></div>
+              <div class="ar-md" id="repMd"><p class="ar-muted">Pick a report on the left.</p></div>
+            </div>
+          </section>
         </div>
       </section>
 
-      <!-- WATCHLIST -->
-      <section id="tab-watchlist" class="tab hidden">
-        <div class="topbar">
+      <section id="tab-fund" class="ar-page hidden" role="tabpanel">
+        <div class="ar-page-head">
           <div>
-            <h2>Watchlist</h2>
-            <div class="sub">Candidates outside the book — edits <span class="mono">data/watchlist.json</span> (with backup)</div>
+            <h1 class="ar-h1">Fund manager</h1>
+            <p class="ar-muted" id="fmSub">Whole-portfolio plan</p>
+          </div>
+          <div class="ar-field ar-field--filter">
+            <label class="ar-label" for="fmDate">Plan</label>
+            <select class="ar-select" id="fmDate"></select>
           </div>
         </div>
-        <div class="panel">
-          <div class="row" style="margin-bottom:14px">
-            <input class="input" id="wlTicker" placeholder="Ticker" style="width:120px" />
-            <input class="input" id="wlSector" placeholder="Sector" style="width:180px" />
-            <select class="select" id="wlType"><option value="stock">stock</option><option value="etf">etf</option></select>
-            <select class="select" id="wlSub">
-              <option value="">sub-theme</option>
-              <option value="ai_energy">AI energy</option>
-              <option value="ai_memory_storage">AI memory &amp; storage</option>
-              <option value="ai_compute_semis">AI compute &amp; semis</option>
-              <option value="ai_network_fibre">AI network &amp; fibre</option>
-              <option value="ai_cloud_software">AI cloud &amp; software</option>
-              <option value="physical_ai">Physical AI</option>
-            </select>
-            <button class="btn primary" id="wlAdd">Add</button>
-          </div>
-          <div id="wlErr" class="err-box hidden"></div>
-          <h3>AI sub-themes</h3>
-          <div class="sub">Candidates in each bucket. Exposure is on the Portfolio tab, because these names are not held.</div>
-          <table id="wlSubTable">
-            <thead><tr><th>Sub-theme</th><th>Candidates</th><th class="num">Count</th></tr></thead>
-            <tbody></tbody>
-          </table>
-          <h3 style="margin-top:18px">Candidates</h3>
-          <table id="wlTable">
-            <thead><tr><th>Ticker</th><th>Sector</th><th>Type</th><th>Sub-theme</th><th></th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-
-      <!-- REPORTS -->
-      <section id="tab-reports" class="tab hidden">
-        <div class="topbar">
-          <div>
-            <h2>Reports</h2>
-            <div class="sub">Per-stock TradingAgents runs</div>
-          </div>
-          <select class="select" id="repFilter"><option value="">All tickers</option></select>
-        </div>
-        <div class="grid-2">
-          <div class="panel">
-            <h3>History</h3>
-            <div class="list" id="repList"></div>
-          </div>
-          <div class="panel">
-            <h3 id="repTitle">Select a report</h3>
-            <div id="repMeta" class="muted" style="margin-bottom:10px"></div>
-            <div class="md" id="repMd"><p class="muted">Pick a report on the left.</p></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- FUND -->
-      <section id="tab-fund" class="tab hidden">
-        <div class="topbar">
-          <div>
-            <h2>Fund manager</h2>
-            <div class="sub" id="fmSub">Whole-portfolio plan</div>
-          </div>
-          <select class="select" id="fmDate"></select>
-        </div>
-        <div class="panel">
-          <h3>Trades</h3>
-          <div style="overflow:auto">
-            <table id="fmTrades">
+        <section class="ar-card ar-card--flush">
+          <div class="ar-card__header"><h2 class="ar-card__title">Trades</h2></div>
+          <div class="ar-table-wrap">
+            <table class="ar-table" id="fmTrades">
               <thead>
                 <tr>
-                  <th>Ticker</th><th>Action</th><th class="num">Shares</th>
-                  <th class="num">Est. price</th><th>Agent</th><th>vs agent</th><th>Rationale</th>
+                  <th>Ticker</th><th>Action</th><th class="ar-num">Shares</th>
+                  <th class="ar-num">Est. price (USD)</th><th>Agent</th><th>vs agent</th><th>Rationale</th>
                 </tr>
               </thead>
               <tbody></tbody>
             </table>
           </div>
+        </section>
+        <div class="ar-grid">
+          <section class="ar-card ar-span-6">
+            <div class="ar-card__header"><h2 class="ar-card__title">Decision summary</h2></div>
+            <div class="ar-card__body ar-prose" id="fmSummary"><p class="ar-muted">—</p></div>
+          </section>
+          <section class="ar-card ar-span-6">
+            <div class="ar-card__header"><h2 class="ar-card__title">Run history</h2></div>
+            <div class="ar-card__body"><div class="ar-list" id="fmHistory"></div></div>
+          </section>
         </div>
-        <div class="grid-2-eq">
-          <div class="panel">
-            <h3>Decision summary</h3>
-            <div id="fmSummary" class="muted">—</div>
-          </div>
-          <div class="panel">
-            <h3>Run history</h3>
-            <div class="list" id="fmHistory"></div>
-          </div>
-        </div>
-        <div class="panel">
-          <h3>Full report</h3>
-          <div class="md" id="fmMd"></div>
-        </div>
+        <section class="ar-card">
+          <div class="ar-card__header"><h2 class="ar-card__title">Full report</h2></div>
+          <div class="ar-card__body"><div class="ar-md" id="fmMd"></div></div>
+        </section>
       </section>
 
-      <!-- THEMES -->
-      <section id="tab-themes" class="tab hidden">
-        <div class="topbar">
+      <section id="tab-themes" class="ar-page hidden" role="tabpanel">
+        <div class="ar-page-head">
           <div>
-            <h2>Theme scout</h2>
-            <div class="sub" id="themeSub">Weekly stance and the free daily screen</div>
+            <h1 class="ar-h1">Themes</h1>
+            <p class="ar-muted" id="themeSub">Weekly stance and the free daily screen</p>
           </div>
-          <div class="badge"><span class="dot"></span> <span id="themeAsOf">—</span></div>
         </div>
-        <div class="panel">
-          <div class="row" style="margin-bottom:12px">
-            <button class="btn primary" id="btnScreen">Run daily screen</button>
-            <button class="btn" id="btnScout">Weekly scout…</button>
+        <section class="ar-card">
+          <div class="ar-card__body ar-stack">
+            <div class="ar-row">
+              <button class="ar-btn ar-btn--primary" id="btnScreen" type="button">
+                <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#play"/></svg>
+                <span class="ar-btn__label">Run screen</span>
+              </button>
+              <button class="ar-btn" id="btnScout" type="button">
+                <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#calendar"/></svg>
+                <span class="ar-btn__label">Weekly scout</span>
+              </button>
+            </div>
+            <label class="ar-check"><input type="checkbox" id="optScoutLlm" /> Include the Sol call (about $0.10–$0.30). Leave this off for a free pack that does not edit the watchlist.</label>
+            <div class="ar-alert ar-alert--warn" id="themeWarn" role="status">
+              <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#triangle-alert"/></svg>
+              <div class="ar-alert__body">The daily screen is free. The weekly Sol call is the paid step, and it can add or drop watchlist names after a backup.</div>
+            </div>
           </div>
-          <label class="chk"><input type="checkbox" id="optScoutLlm" /> Include the Sol call (about $0.10–$0.30). Leave this off for a free pack that does not edit the watchlist.</label>
-          <div class="warn-box" id="themeWarn">The daily screen is free. The weekly Sol call is the paid step, and it can add or drop watchlist names after a backup.</div>
-        </div>
-        <div class="panel">
-          <h3>Screen</h3>
-          <div style="overflow:auto">
-            <table id="themeScreen">
+        </section>
+        <section class="ar-card ar-card--flush">
+          <div class="ar-card__header">
+            <h2 class="ar-card__title">Screen</h2>
+            <span class="ar-subtle" id="themeAsOf">—</span>
+          </div>
+          <div class="ar-table-wrap">
+            <table class="ar-table" id="themeScreen">
               <thead>
                 <tr>
-                  <th class="num">Rank</th><th>Ticker</th><th class="num">Score</th>
-                  <th class="num">RS 1m</th><th class="num">MA50</th><th class="num">ATR %</th><th class="num">Earnings</th>
+                  <th class="ar-num">Rank</th><th>Ticker</th><th class="ar-num">Score</th>
+                  <th class="ar-num">RS 1m</th><th class="ar-num">MA50</th><th class="ar-num">ATR %</th><th class="ar-num">Earnings</th>
                 </tr>
               </thead>
               <tbody></tbody>
             </table>
           </div>
-        </div>
-        <div class="grid-2-eq">
-          <div class="panel">
-            <h3>Relative strength vs SPY</h3>
-            <div style="overflow:auto">
-              <table id="themeRs">
-                <thead><tr><th>Group</th><th class="num">1w</th><th class="num">1m</th><th class="num">3m</th></tr></thead>
+        </section>
+        <div class="ar-grid">
+          <section class="ar-card ar-card--flush ar-span-6">
+            <div class="ar-card__header"><h2 class="ar-card__title">Relative strength vs SPY</h2></div>
+            <div class="ar-table-wrap">
+              <table class="ar-table" id="themeRs">
+                <thead><tr><th>Group</th><th class="ar-num">1w</th><th class="ar-num">1m</th><th class="ar-num">3m</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
-          </div>
-          <div class="panel">
-            <h3>Watchlist changes</h3>
-            <div id="themeChanges" class="muted">—</div>
-          </div>
+          </section>
+          <section class="ar-card ar-span-6">
+            <div class="ar-card__header"><h2 class="ar-card__title">Watchlist changes</h2></div>
+            <div class="ar-card__body" id="themeChanges"><p class="ar-muted">—</p></div>
+          </section>
         </div>
-        <div class="panel">
-          <h3>Report</h3>
-          <div class="md" id="themeMd"><p class="muted">No theme-scout report yet.</p></div>
-        </div>
+        <section class="ar-card">
+          <div class="ar-card__header"><h2 class="ar-card__title">Report</h2></div>
+          <div class="ar-card__body"><div class="ar-md" id="themeMd"><p class="ar-muted">No theme-scout report yet.</p></div></div>
+        </section>
       </section>
 
-      <!-- RUNS -->
-      <section id="tab-runs" class="tab hidden">
-        <div class="topbar">
+      <section id="tab-runs" class="ar-page hidden" role="tabpanel">
+        <div class="ar-page-head">
           <div>
-            <h2>Runs</h2>
-            <div class="sub">Trigger fund manager / selective agent runs (costs money when models run)</div>
+            <h1 class="ar-h1">Runs</h1>
+            <p class="ar-muted">Trigger fund manager / selective agent runs (costs money when models run)</p>
           </div>
         </div>
-        <div class="grid-2">
-          <div class="panel">
-            <h3>New run</h3>
-            <div class="row" style="margin-bottom:10px">
-              <label class="chk"><input type="checkbox" id="optRunAgents" /> Run agents first (-RunAgents)</label>
-              <label class="chk"><input type="checkbox" id="optNoLLM" /> Snapshot only (-NoLLM, free)</label>
-              <label class="chk"><input type="checkbox" id="optRisk" /> Include risk notes</label>
-              <label class="chk"><input type="checkbox" id="optNoMacro" /> No macro</label>
-              <label class="chk hidden" id="optWlWrap"><input type="checkbox" id="optWatchlist" /> Include watchlist</label>
+        <div class="ar-grid">
+          <section class="ar-card ar-span-7">
+            <div class="ar-card__header"><h2 class="ar-card__title">New run</h2></div>
+            <div class="ar-card__body ar-stack">
+              <div class="ar-row">
+                <label class="ar-check"><input type="checkbox" id="optRunAgents" /> Run agents first (-RunAgents)</label>
+                <label class="ar-check"><input type="checkbox" id="optNoLLM" /> Snapshot only (-NoLLM, free)</label>
+                <label class="ar-check"><input type="checkbox" id="optRisk" /> Include risk notes</label>
+                <label class="ar-check"><input type="checkbox" id="optNoMacro" /> No macro</label>
+                <label class="ar-check hidden" id="optWlWrap"><input type="checkbox" id="optWatchlist" /> Include watchlist</label>
+              </div>
+              <div class="ar-date-row">
+                <div class="ar-field">
+                  <label class="ar-label" for="optDate">Analysis date</label>
+                  <input class="ar-input" id="optDate" type="date" />
+                </div>
+                <div class="ar-field">
+                  <label class="ar-label" for="optSince">Since</label>
+                  <input class="ar-input" id="optSince" type="date" />
+                </div>
+              </div>
+              <h3 class="ar-h3">Tickers</h3>
+              <p class="ar-subtle">Empty means all book positions when agents run.</p>
+              <div class="ar-row">
+                <button class="ar-btn" id="selBook" type="button">
+                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#wallet"/></svg>
+                  <span class="ar-btn__label">Select book</span>
+                </button>
+                <button class="ar-btn" id="selWatch" type="button">
+                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#eye"/></svg>
+                  <span class="ar-btn__label">Select watchlist</span>
+                </button>
+                <button class="ar-btn" id="selNone" type="button">
+                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#x"/></svg>
+                  <span class="ar-btn__label">Clear</span>
+                </button>
+                <button class="ar-btn" id="selEtfs" type="button">
+                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#filter"/></svg>
+                  <span class="ar-btn__label">Sector ETFs</span>
+                </button>
+              </div>
+              <div class="ar-ticker-grid" id="tickerGrid"></div>
+              <div class="ar-alert ar-alert--warn" id="runWarn" role="status">
+                <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#triangle-alert"/></svg>
+                <div class="ar-alert__body" id="runWarnText">Full agent analysis is ~7 minutes per ticker plus model fees. Confirm before starting.</div>
+              </div>
+              <div class="ar-row">
+                <button class="ar-btn ar-btn--primary" id="btnStartRun" type="button">
+                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#play"/></svg>
+                  <span class="ar-btn__label">Start run</span>
+                </button>
+              </div>
             </div>
-            <div class="row" style="margin-bottom:12px">
-              <label class="muted">Analysis date <input class="input" id="optDate" type="date" /></label>
-              <label class="muted">Since <input class="input" id="optSince" type="date" /></label>
+          </section>
+          <section class="ar-card ar-span-5">
+            <div class="ar-card__header"><h2 class="ar-card__title">Past runs</h2></div>
+            <div class="ar-card__body ar-stack">
+              <div class="ar-list" id="runList"></div>
+              <h3 class="ar-h3">Log</h3>
+              <div class="ar-log ar-log--stream" id="runLog" role="log" aria-live="polite">Select a run to tail its log.</div>
             </div>
-            <h3 style="font-size:.95rem">Tickers (empty = all book positions when agents run)</h3>
-            <div class="row" style="margin-bottom:8px">
-              <button class="btn sm" id="selBook">Select book</button>
-              <button class="btn sm" id="selWatch">Select watchlist</button>
-              <button class="btn sm" id="selNone">Clear</button>
-              <button class="btn sm" id="selEtfs">Sector ETFs only</button>
-            </div>
-            <div class="ticker-grid" id="tickerGrid"></div>
-            <div class="warn-box" id="runWarn">
-              Full agent analysis is ~7 minutes per ticker plus model fees. Confirm before starting.
-            </div>
-            <div class="row" style="margin-top:12px">
-              <button class="btn primary" id="btnStartRun">Start run…</button>
-            </div>
-          </div>
-          <div class="panel">
-            <h3>Past runs</h3>
-            <div class="list" id="runList"></div>
-            <h3 style="margin-top:16px">Log</h3>
-            <div class="log" id="runLog">Select a run to tail its log.</div>
-          </div>
+          </section>
         </div>
       </section>
     </main>
+    <footer class="ar-shell-foot">Local only · 127.0.0.1 · Decision support, not advice.</footer>
   </div>
 
-  <div class="modal-backdrop hidden" id="confirmModal">
-    <div class="modal">
-      <h3>Confirm run</h3>
-      <p class="muted" id="confirmText"></p>
-      <div class="warn-box">This can call paid models via OpenRouter. Argus never shows your API keys.</div>
-      <div class="row" style="justify-content:flex-end; margin-top:14px">
-        <button class="btn" id="confirmCancel">Cancel</button>
-        <button class="btn primary" id="confirmGo">Confirm &amp; start</button>
+  <dialog class="ar-dialog" id="confirmModal" aria-labelledby="confirmTitle">
+    <div class="ar-dialog__header">
+      <div class="ar-dialog__icon" id="confirmIcon">
+        <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#triangle-alert"/></svg>
+      </div>
+      <div>
+        <h3 class="ar-dialog__title" id="confirmTitle">Confirm run</h3>
+        <p class="ar-caption" id="confirmCaption">Argus never shows your API keys.</p>
       </div>
     </div>
-  </div>
+    <div class="ar-dialog__body">
+      <p id="confirmText"></p>
+      <label class="ar-check hidden" id="confirmConsentWrap">
+        <input type="checkbox" id="confirmConsent" />
+        <span>I understand this can spend OpenRouter credits.</span>
+      </label>
+    </div>
+    <div class="ar-dialog__actions">
+      <div class="ar-btn-group ar-btn-group--equal">
+        <button type="button" class="ar-btn ar-btn--ghost" id="confirmCancel">
+          <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#x"/></svg>
+          <span class="ar-btn__label">Cancel</span>
+        </button>
+        <button type="button" class="ar-btn ar-btn--primary" id="confirmGo">
+          <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#play"/></svg>
+          <span class="ar-btn__label">Start run</span>
+        </button>
+      </div>
+    </div>
+  </dialog>
 
+  <div class="ar-toast-stack" id="toasts" aria-live="polite"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

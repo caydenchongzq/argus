@@ -1,0 +1,564 @@
+/* Argus colour tokens v1.1 — generated from palette.json (src/build_palette.py). Colour only; type/spacing/components = design system phase 2.
+
+ * Usage: <html data-theme="dark"> (default) | data-theme="light" | omit to follow the OS. Add data-palette="cvd" for blue/orange gain-loss. */
+
+:root {
+  --argus-emerald-50: #ECFDF5;
+  --argus-emerald-100: #D1FAE5;
+  --argus-emerald-200: #A7F3D0;
+  --argus-emerald-300: #6EE7B7;
+  --argus-emerald-400: #34D399;
+  --argus-emerald-500: #10B981;
+  --argus-emerald-600: #059669;
+  --argus-emerald-700: #047857;
+  --argus-emerald-800: #065F46;
+  --argus-emerald-900: #064E3B;
+  --argus-emerald-950: #022C22;
+  --argus-slate-50: #F8FAFC;
+  --argus-slate-100: #F1F5F9;
+  --argus-slate-200: #E2E8F0;
+  --argus-slate-300: #CBD5E1;
+  --argus-slate-400: #94A3B8;
+  --argus-slate-500: #64748B;
+  --argus-slate-600: #475569;
+  --argus-slate-700: #334155;
+  --argus-slate-800: #1E293B;
+  --argus-slate-900: #0F172A;
+  --argus-slate-950: #0B0F17;
+  --argus-violet-50: #F5F3FF;
+  --argus-violet-100: #EDE9FE;
+  --argus-violet-200: #DDD6FE;
+  --argus-violet-300: #C4B5FD;
+  --argus-violet-400: #A78BFA;
+  --argus-violet-500: #8B5CF6;
+  --argus-violet-600: #7C3AED;
+  --argus-violet-700: #6D28D9;
+  --argus-violet-800: #5B21B6;
+  --argus-violet-900: #4C1D95;
+  --argus-lime-50: #F7FEE7;
+  --argus-lime-100: #ECFCCB;
+  --argus-lime-200: #D9F99D;
+  --argus-lime-300: #BEF264;
+  --argus-lime-400: #A3E635;
+  --argus-lime-500: #84CC16;
+  --argus-lime-600: #65A30D;
+  --argus-lime-700: #4D7C0F;
+  --argus-lime-800: #3F6212;
+  --argus-lime-900: #365314;
+  --argus-red-50: #FEF2F2;
+  --argus-red-100: #FEE2E2;
+  --argus-red-200: #FECACA;
+  --argus-red-300: #FCA5A5;
+  --argus-red-400: #F87171;
+  --argus-red-500: #EF4444;
+  --argus-red-600: #DC2626;
+  --argus-red-700: #B91C1C;
+  --argus-red-800: #991B1B;
+  --argus-red-900: #7F1D1D;
+  --argus-amber-50: #FFFBEB;
+  --argus-amber-100: #FEF3C7;
+  --argus-amber-200: #FDE68A;
+  --argus-amber-300: #FCD34D;
+  --argus-amber-400: #FBBF24;
+  --argus-amber-500: #F59E0B;
+  --argus-amber-600: #D97706;
+  --argus-amber-700: #B45309;
+  --argus-amber-800: #92400E;
+  --argus-amber-900: #78350F;
+  --argus-sky-50: #F0F9FF;
+  --argus-sky-100: #E0F2FE;
+  --argus-sky-200: #BAE6FD;
+  --argus-sky-300: #7DD3FC;
+  --argus-sky-400: #38BDF8;
+  --argus-sky-500: #0EA5E9;
+  --argus-sky-600: #0284C7;
+  --argus-sky-700: #0369A1;
+  --argus-sky-800: #075985;
+  --argus-sky-900: #0C4A6E;
+  --argus-blue-50: #EFF6FF;
+  --argus-blue-400: #60A5FA;
+  --argus-blue-600: #2563EB;
+  --argus-blue-700: #1D4ED8;
+  --argus-orange-50: #FFF7ED;
+  --argus-orange-400: #FB923C;
+  --argus-orange-700: #C2410C;
+  --argus-orange-800: #9A3412;
+}
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --argus-bg: #0B0F17;
+  --argus-surface: #121826;
+  --argus-surface-2: #1A2132;
+  --argus-surface-hover: #1E2638;
+  --argus-surface-active: #263043;
+  --argus-surface-selected: #0F2A22;
+  --argus-border: #263043;
+  --argus-border-strong: #334155;
+  --argus-border-hover: #475569;
+  --argus-text: #E2E8F0;
+  --argus-text-2: #94A3B8;
+  --argus-text-3: #7C8BA1;
+  --argus-text-disabled: #4B5568;
+  --argus-brand: #34D399;
+  --argus-brand-text: #34D399;
+  --argus-brand-subtle: #0F2A22;
+  --argus-focus-ring: #34D399;
+  --argus-accent: #A78BFA;
+  --argus-accent-subtle: #221A3A;
+  --argus-btn-primary-bg: #34D399;
+  --argus-btn-primary-hover: #6EE7B7;
+  --argus-btn-primary-active: #A7F3D0;
+  --argus-btn-primary-text: #052E1F;
+  --argus-btn-secondary-bg: #1A2132;
+  --argus-btn-secondary-hover: #1E2638;
+  --argus-btn-secondary-active: #263043;
+  --argus-btn-secondary-border: #334155;
+  --argus-btn-secondary-text: #E2E8F0;
+  --argus-btn-ghost-hover: #1E2638;
+  --argus-btn-ghost-active: #263043;
+  --argus-btn-ghost-text: #34D399;
+  --argus-btn-danger-bg: #F87171;
+  --argus-btn-danger-hover: #FCA5A5;
+  --argus-btn-danger-active: #FECACA;
+  --argus-btn-danger-text: #2A0A0A;
+  --argus-btn-disabled-bg: #1A2132;
+  --argus-btn-disabled-border: #263043;
+  --argus-input-bg: #0F1420;
+  --argus-input-border: #64748B;
+  --argus-input-border-hover: #94A3B8;
+  --argus-input-border-focus: #34D399;
+  --argus-input-disabled-bg: #151B29;
+  --argus-input-placeholder: #7C8BA1;
+  --argus-gain: #A3E635;
+  --argus-gain-subtle: #1C2A0E;
+  --argus-on-gain: #1A2E05;
+  --argus-loss: #F87171;
+  --argus-loss-subtle: #2A1316;
+  --argus-on-loss: #2A0A0A;
+  --argus-flat: #94A3B8;
+  --argus-flat-subtle: #1A2132;
+  --argus-warn: #FBBF24;
+  --argus-warn-subtle: #2A2110;
+  --argus-warn-border: #78350F;
+  --argus-info: #38BDF8;
+  --argus-info-subtle: #0E2233;
+  --argus-info-border: #075985;
+  --argus-danger: #F87171;
+  --argus-danger-subtle: #2A1316;
+  --argus-danger-border: #7F1D1D;
+  --argus-ok: #34D399;
+  --argus-ok-subtle: #0F2A22;
+  --argus-ok-border: #065F46;
+  --argus-chart-1: #38BDF8;
+  --argus-chart-2: #A78BFA;
+  --argus-chart-3: #FBBF24;
+  --argus-chart-4: #F472B6;
+  --argus-chart-5: #2DD4BF;
+  --argus-chart-6: #818CF8;
+  --argus-chart-7: #FACC15;
+  --argus-chart-8: #94A3B8;
+  --argus-chart-grid: #1E2638;
+  --argus-chart-axis: #7C8BA1;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --argus-bg: #F8FAFC;
+  --argus-surface: #FFFFFF;
+  --argus-surface-2: #F1F5F9;
+  --argus-surface-hover: #F1F5F9;
+  --argus-surface-active: #E2E8F0;
+  --argus-surface-selected: #ECFDF5;
+  --argus-border: #E2E8F0;
+  --argus-border-strong: #CBD5E1;
+  --argus-border-hover: #94A3B8;
+  --argus-text: #0F172A;
+  --argus-text-2: #475569;
+  --argus-text-3: #5B6B82;
+  --argus-text-disabled: #94A3B8;
+  --argus-brand: #059669;
+  --argus-brand-text: #047857;
+  --argus-brand-subtle: #ECFDF5;
+  --argus-focus-ring: #059669;
+  --argus-accent: #7C3AED;
+  --argus-accent-subtle: #F5F3FF;
+  --argus-btn-primary-bg: #047857;
+  --argus-btn-primary-hover: #065F46;
+  --argus-btn-primary-active: #064E3B;
+  --argus-btn-primary-text: #FFFFFF;
+  --argus-btn-secondary-bg: #FFFFFF;
+  --argus-btn-secondary-hover: #F1F5F9;
+  --argus-btn-secondary-active: #E2E8F0;
+  --argus-btn-secondary-border: #CBD5E1;
+  --argus-btn-secondary-text: #0F172A;
+  --argus-btn-ghost-hover: #F1F5F9;
+  --argus-btn-ghost-active: #E2E8F0;
+  --argus-btn-ghost-text: #047857;
+  --argus-btn-danger-bg: #DC2626;
+  --argus-btn-danger-hover: #B91C1C;
+  --argus-btn-danger-active: #991B1B;
+  --argus-btn-danger-text: #FFFFFF;
+  --argus-btn-disabled-bg: #F1F5F9;
+  --argus-btn-disabled-border: #E2E8F0;
+  --argus-input-bg: #FFFFFF;
+  --argus-input-border: #7C8BA1;
+  --argus-input-border-hover: #475569;
+  --argus-input-border-focus: #059669;
+  --argus-input-disabled-bg: #F1F5F9;
+  --argus-input-placeholder: #5B6B82;
+  --argus-gain: #4D7C0F;
+  --argus-gain-subtle: #F7FEE7;
+  --argus-on-gain: #FFFFFF;
+  --argus-loss: #C62828;
+  --argus-loss-subtle: #FEF2F2;
+  --argus-on-loss: #FFFFFF;
+  --argus-flat: #64748B;
+  --argus-flat-subtle: #F1F5F9;
+  --argus-warn: #B45309;
+  --argus-warn-subtle: #FFFBEB;
+  --argus-warn-border: #FCD34D;
+  --argus-info: #0369A1;
+  --argus-info-subtle: #F0F9FF;
+  --argus-info-border: #7DD3FC;
+  --argus-danger: #B91C1C;
+  --argus-danger-subtle: #FEF2F2;
+  --argus-danger-border: #FCA5A5;
+  --argus-ok: #047857;
+  --argus-ok-subtle: #ECFDF5;
+  --argus-ok-border: #6EE7B7;
+  --argus-chart-1: #0284C7;
+  --argus-chart-2: #7C3AED;
+  --argus-chart-3: #D97706;
+  --argus-chart-4: #DB2777;
+  --argus-chart-5: #0F766E;
+  --argus-chart-6: #4F46E5;
+  --argus-chart-7: #A16207;
+  --argus-chart-8: #475569;
+  --argus-chart-grid: #E2E8F0;
+  --argus-chart-axis: #64748B;
+}
+
+:root[data-palette="cvd"],
+[data-theme="dark"][data-palette="cvd"] {
+  --argus-gain: #60A5FA;
+  --argus-gain-subtle: #0F1D33;
+  --argus-on-gain: #0B1B33;
+  --argus-loss: #FB923C;
+  --argus-loss-subtle: #2B1A0E;
+  --argus-on-loss: #2B1205;
+}
+
+[data-theme="light"][data-palette="cvd"] {
+  --argus-gain: #2563EB;
+  --argus-gain-subtle: #EFF6FF;
+  --argus-on-gain: #FFFFFF;
+  --argus-loss: #C2410C;
+  --argus-loss-subtle: #FFF7ED;
+  --argus-on-loss: #FFFFFF;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --argus-bg: #F8FAFC;
+    --argus-surface: #FFFFFF;
+    --argus-surface-2: #F1F5F9;
+    --argus-surface-hover: #F1F5F9;
+    --argus-surface-active: #E2E8F0;
+    --argus-surface-selected: #ECFDF5;
+    --argus-border: #E2E8F0;
+    --argus-border-strong: #CBD5E1;
+    --argus-border-hover: #94A3B8;
+    --argus-text: #0F172A;
+    --argus-text-2: #475569;
+    --argus-text-3: #5B6B82;
+    --argus-text-disabled: #94A3B8;
+    --argus-brand: #059669;
+    --argus-brand-text: #047857;
+    --argus-brand-subtle: #ECFDF5;
+    --argus-focus-ring: #059669;
+    --argus-accent: #7C3AED;
+    --argus-accent-subtle: #F5F3FF;
+    --argus-btn-primary-bg: #047857;
+    --argus-btn-primary-hover: #065F46;
+    --argus-btn-primary-active: #064E3B;
+    --argus-btn-primary-text: #FFFFFF;
+    --argus-btn-secondary-bg: #FFFFFF;
+    --argus-btn-secondary-hover: #F1F5F9;
+    --argus-btn-secondary-active: #E2E8F0;
+    --argus-btn-secondary-border: #CBD5E1;
+    --argus-btn-secondary-text: #0F172A;
+    --argus-btn-ghost-hover: #F1F5F9;
+    --argus-btn-ghost-active: #E2E8F0;
+    --argus-btn-ghost-text: #047857;
+    --argus-btn-danger-bg: #DC2626;
+    --argus-btn-danger-hover: #B91C1C;
+    --argus-btn-danger-active: #991B1B;
+    --argus-btn-danger-text: #FFFFFF;
+    --argus-btn-disabled-bg: #F1F5F9;
+    --argus-btn-disabled-border: #E2E8F0;
+    --argus-input-bg: #FFFFFF;
+    --argus-input-border: #7C8BA1;
+    --argus-input-border-hover: #475569;
+    --argus-input-border-focus: #059669;
+    --argus-input-disabled-bg: #F1F5F9;
+    --argus-input-placeholder: #5B6B82;
+    --argus-gain: #4D7C0F;
+    --argus-gain-subtle: #F7FEE7;
+    --argus-on-gain: #FFFFFF;
+    --argus-loss: #C62828;
+    --argus-loss-subtle: #FEF2F2;
+    --argus-on-loss: #FFFFFF;
+    --argus-flat: #64748B;
+    --argus-flat-subtle: #F1F5F9;
+    --argus-warn: #B45309;
+    --argus-warn-subtle: #FFFBEB;
+    --argus-warn-border: #FCD34D;
+    --argus-info: #0369A1;
+    --argus-info-subtle: #F0F9FF;
+    --argus-info-border: #7DD3FC;
+    --argus-danger: #B91C1C;
+    --argus-danger-subtle: #FEF2F2;
+    --argus-danger-border: #FCA5A5;
+    --argus-ok: #047857;
+    --argus-ok-subtle: #ECFDF5;
+    --argus-ok-border: #6EE7B7;
+    --argus-chart-1: #0284C7;
+    --argus-chart-2: #7C3AED;
+    --argus-chart-3: #D97706;
+    --argus-chart-4: #DB2777;
+    --argus-chart-5: #0F766E;
+    --argus-chart-6: #4F46E5;
+    --argus-chart-7: #A16207;
+    --argus-chart-8: #475569;
+    --argus-chart-grid: #E2E8F0;
+    --argus-chart-axis: #64748B;
+  }
+  :root:not([data-theme])[data-palette="cvd"] {
+    --argus-gain: #2563EB;
+    --argus-gain-subtle: #EFF6FF;
+    --argus-on-gain: #FFFFFF;
+    --argus-loss: #C2410C;
+    --argus-loss-subtle: #FFF7ED;
+    --argus-on-loss: #FFFFFF;
+  }
+}
+
+/* Minimal helpers (colour only) */
+.argus-gain { color: var(--argus-gain); }
+.argus-loss { color: var(--argus-loss); }
+.argus-flat { color: var(--argus-flat); }
+:focus-visible { outline: 2px solid var(--argus-focus-ring); outline-offset: 2px; }
+/* ==========================================================================
+   Argus foundations v2 (design system phase 2) — type, space, radii,
+   borders, elevation, motion, z-index, layout, density.
+   Colour tokens above this block are unchanged from palette v1.1.
+   ========================================================================== */
+
+/* ---- Fonts: self-hosted, SIL OFL 1.1 (see fonts/*-OFL.txt). Latin subset, variable. ---- */
+@font-face { font-family: "Inter"; src: url("fonts/InterVariable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/InterVariable-Italic.woff2") format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMonoVariable.woff2") format("woff2"); font-weight: 100 800; font-style: normal; font-display: swap; }
+
+:root {
+  /* Families */
+  --argus-font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --argus-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --argus-font-numeric: var(--argus-font-sans); /* Inter + tabular-nums; mono only for code/logs/IDs */
+
+  /* Weights */
+  --argus-weight-regular: 400;
+  --argus-weight-medium: 500;
+  --argus-weight-semibold: 600;
+  --argus-weight-bold: 700;
+
+  /* Type scale: size / line-height (px, tuned for a dense desktop UI) */
+  --argus-text-display: 32px;  --argus-leading-display: 40px;
+  --argus-text-h1: 24px;       --argus-leading-h1: 32px;
+  --argus-text-h2: 20px;       --argus-leading-h2: 28px;
+  --argus-text-h3: 16px;       --argus-leading-h3: 24px;
+  --argus-text-h4: 12px;       --argus-leading-h4: 16px;   /* uppercase section label */
+  --argus-text-body-lg: 14px;  --argus-leading-body-lg: 22px;
+  --argus-text-body: 13px;     --argus-leading-body: 20px;
+  --argus-text-small: 12px;    --argus-leading-small: 16px;
+  --argus-text-caption: 11px;  --argus-leading-caption: 14px;
+  --argus-text-data: 13px;     --argus-leading-data: 20px;  /* table numbers */
+  --argus-text-data-lg: 24px;  --argus-leading-data-lg: 32px; /* stat tile value */
+  --argus-text-code: 12px;     --argus-leading-code: 18px;
+  --argus-tracking-tight: -0.011em; /* display, h1, data-lg */
+  --argus-tracking-caps: 0.06em;    /* h4, captions in caps */
+
+  /* Spacing: 4px base */
+  --argus-space-0: 0;
+  --argus-space-px: 1px;
+  --argus-space-0-5: 2px;
+  --argus-space-1: 4px;
+  --argus-space-1-5: 6px;
+  --argus-space-2: 8px;
+  --argus-space-3: 12px;
+  --argus-space-4: 16px;
+  --argus-space-5: 20px;
+  --argus-space-6: 24px;
+  --argus-space-8: 32px;
+  --argus-space-10: 40px;
+  --argus-space-12: 48px;
+  --argus-space-16: 64px;
+
+  /* Radii */
+  --argus-radius-xs: 3px;   /* checkbox, kbd */
+  --argus-radius-sm: 4px;   /* badges (status), small controls */
+  --argus-radius-md: 6px;   /* buttons, inputs, tabs */
+  --argus-radius-lg: 10px;  /* cards, alerts, tables */
+  --argus-radius-xl: 14px;  /* dialogs */
+  --argus-radius-full: 999px; /* pills, toggles, rating badges */
+
+  /* Borders */
+  --argus-border-width: 1px;
+  --argus-border-width-strong: 2px; /* selection indicators, focus */
+  --argus-focus-width: 2px;
+  --argus-focus-offset: 2px;
+
+  /* Motion */
+  --argus-dur-instant: 80ms;   /* hover colour */
+  --argus-dur-fast: 120ms;     /* press, toggle */
+  --argus-dur-base: 180ms;     /* tooltip, tab indicator, toast in */
+  --argus-dur-slow: 280ms;     /* dialog, drawer */
+  --argus-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --argus-ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --argus-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Z-index */
+  --argus-z-base: 0;
+  --argus-z-sticky: 10;    /* sticky table header */
+  --argus-z-header: 20;    /* app header */
+  --argus-z-dropdown: 30;
+  --argus-z-overlay: 40;   /* dialog backdrop */
+  --argus-z-modal: 50;
+  --argus-z-toast: 60;
+  --argus-z-tooltip: 70;
+
+  /* Breakpoints (reference only — CSS vars can't be used in @media):
+     sm 640px · md 960px · lg 1280px · xl 1600px. Design target: 1440–1920 desktop. */
+  --argus-bp-sm: 640px;
+  --argus-bp-md: 960px;
+  --argus-bp-lg: 1280px;
+  --argus-bp-xl: 1600px;
+
+  /* Layout */
+  --argus-header-h: 52px;
+  --argus-content-max: 1680px;
+  --argus-grid-cols: 12;
+
+  /* Density: comfortable (default) */
+  --argus-page-pad: 24px;
+  --argus-gap: 16px;          /* between cards */
+  --argus-card-pad: 16px;
+  --argus-control-h: 32px;    /* md buttons/inputs */
+  --argus-control-h-sm: 26px;
+  --argus-control-h-lg: 38px;
+  --argus-control-px: 12px;
+  --argus-row-h: 36px;        /* table rows */
+  --argus-cell-px: 12px;
+  --argus-icon-size: 16px;
+
+  /* Buttons: equal-feeling widths and icon sizing */
+  --argus-btn-minw-md: 96px;
+  --argus-btn-minw-lg: 120px;
+  --argus-btn-gap: 6px;       /* icon ↔ label, md */
+  --argus-btn-gap-lg: 8px;
+  --argus-btn-icon-sm: 14px;  /* sm buttons are icon-only squares */
+  --argus-btn-icon-md: 16px;
+  --argus-btn-icon-lg: 18px;
+}
+
+[data-density="compact"] {
+  --argus-page-pad: 16px;
+  --argus-gap: 12px;
+  --argus-card-pad: 12px;
+  --argus-control-h: 28px;
+  --argus-control-h-sm: 24px;
+  --argus-control-h-lg: 34px;
+  --argus-control-px: 10px;
+  --argus-row-h: 28px;
+  --argus-cell-px: 8px;
+  --argus-text-body: 12px;  --argus-leading-body: 18px;
+  --argus-text-data: 12px;  --argus-leading-data: 18px;
+  --argus-icon-size: 14px;
+  --argus-btn-minw-md: 88px;
+  --argus-btn-minw-lg: 112px;
+}
+
+/* Elevation: light uses soft shadows; dark relies on lighter surfaces + borders, shadows are deeper and subtle */
+:root, [data-theme="dark"] {
+  --argus-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --argus-shadow-md: 0 4px 12px rgb(0 0 0 / 0.40);
+  --argus-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.50);
+  --argus-shadow-overlay: 0 24px 64px rgb(0 0 0 / 0.60);
+  --argus-backdrop: rgb(3 6 12 / 0.66);
+  --argus-skeleton-a: #1A2132;
+  --argus-skeleton-b: #263043;
+  /* Log / terminal panel */
+  --argus-log-bg: #0B0F17;
+  --argus-log-border: #263043;
+  --argus-log-text: #E2E8F0;
+  --argus-log-ts: #7C8BA1;
+  --argus-log-lvl: #94A3B8;
+  --argus-log-info: #38BDF8;
+  --argus-log-warn: #FBBF24;
+  --argus-log-error: #F87171;
+  --argus-log-ok: #34D399;
+  --argus-log-hover: rgb(255 255 255 / 0.04);
+}
+[data-theme="light"] {
+  --argus-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+  --argus-shadow-md: 0 4px 12px rgb(15 23 42 / 0.08), 0 1px 3px rgb(15 23 42 / 0.06);
+  --argus-shadow-lg: 0 12px 32px rgb(15 23 42 / 0.12);
+  --argus-shadow-overlay: 0 24px 64px rgb(15 23 42 / 0.20);
+  --argus-backdrop: rgb(15 23 42 / 0.40);
+  --argus-skeleton-a: #F1F5F9;
+  --argus-skeleton-b: #E2E8F0;
+  /* Log / terminal panel */
+  --argus-log-bg: #F8FAFC;
+  --argus-log-border: #CBD5E1;
+  --argus-log-text: #0F172A;
+  --argus-log-ts: #5B6B82;
+  --argus-log-lvl: #475569;
+  --argus-log-info: #0369A1;
+  --argus-log-warn: #92400E;
+  --argus-log-error: #B91C1C;
+  --argus-log-ok: #047857;
+  --argus-log-hover: rgb(15 23 42 / 0.04);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --argus-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+    --argus-shadow-md: 0 4px 12px rgb(15 23 42 / 0.08), 0 1px 3px rgb(15 23 42 / 0.06);
+    --argus-shadow-lg: 0 12px 32px rgb(15 23 42 / 0.12);
+    --argus-shadow-overlay: 0 24px 64px rgb(15 23 42 / 0.20);
+    --argus-backdrop: rgb(15 23 42 / 0.40);
+    --argus-skeleton-a: #F1F5F9;
+    --argus-skeleton-b: #E2E8F0;
+    /* Log / terminal panel */
+    --argus-log-bg: #F8FAFC;
+    --argus-log-border: #CBD5E1;
+    --argus-log-text: #0F172A;
+    --argus-log-ts: #5B6B82;
+    --argus-log-lvl: #475569;
+    --argus-log-info: #0369A1;
+    --argus-log-warn: #92400E;
+    --argus-log-error: #B91C1C;
+    --argus-log-ok: #047857;
+    --argus-log-hover: rgb(15 23 42 / 0.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --argus-dur-instant: 0ms;
+    --argus-dur-fast: 0ms;
+    --argus-dur-base: 0ms;
+    --argus-dur-slow: 0ms;
+  }
+}

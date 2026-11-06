@@ -1,6 +1,8 @@
-/* Argus frontend */
+/* Argus frontend. Rendering uses the brand system; API behaviour is unchanged. */
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const SPRITE = "/static/argus-brand/assets/icons/argus-icons.svg";
+const MINUS = "\u2212";
 
 const state = {
   tab: "portfolio",
@@ -14,7 +16,9 @@ const state = {
   selectedReport: null,
   selectedRun: null,
   pendingTheme: null,
+  pendingRemove: null,
   logOffset: 0,
+  logText: "",
   logTimer: null,
   chart: null,
   bookTickers: [],
@@ -22,15 +26,25 @@ const state = {
   token: null,
 };
 
+let closingFromConfirm = false;
+
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
   }[c]));
 }
 
+function iconSvg(name, cls = "ar-btn__icon") {
+  return `<svg class="${cls}" aria-hidden="true"><use href="${SPRITE}#${name}"/></svg>`;
+}
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function renderMarkdown(el, md) {
   if (!md) {
-    el.innerHTML = "<p class='muted'>No markdown report</p>";
+    el.innerHTML = "<p class='ar-muted'>No markdown report</p>";
     return;
   }
   if (!window.marked || !window.DOMPurify) {
@@ -40,23 +54,115 @@ function renderMarkdown(el, md) {
   el.innerHTML = DOMPurify.sanitize(marked.parse(md), { USE_PROFILES: { html: true } });
 }
 
-function money(n) {
-  if (n == null || Number.isNaN(n)) return "—";
-  return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+function groupThousands(digits) {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
-function money2(n) {
-  if (n == null || Number.isNaN(n)) return "—";
-  return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+
+function moneyAbs(n, abbreviate) {
+  const abs = Math.abs(Number(n));
+  if (abbreviate && abs >= 1000000) {
+    const millions = abs / 1000000;
+    return `$${millions.toFixed(2)}M`;
+  }
+  const [whole, frac] = abs.toFixed(2).split(".");
+  return `$${groupThousands(whole)}.${frac}`;
 }
-function pct(n, d = 1) {
-  if (n == null || Number.isNaN(n)) return "—";
-  return `${Number(n).toFixed(d)}%`;
+
+function moneyLevel(n, abbreviate = false) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  const v = Number(n);
+  const body = moneyAbs(v, abbreviate);
+  return v < 0 ? `${MINUS}${body}` : body;
 }
+
+function moneyChange(n, abbreviate = false) {
+  if (n == null || Number.isNaN(Number(n))) return null;
+  const v = Number(n);
+  const body = moneyAbs(v, abbreviate);
+  if (v > 0) return { text: `+${body}`, dir: "gain", arrow: "▲" };
+  if (v < 0) return { text: `${MINUS}${body}`, dir: "loss", arrow: "▼" };
+  return { text: body, dir: "flat", arrow: "■" };
+}
+
+function pctLevel(n, digits = 1) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  return `${Number(n).toFixed(digits)}%`;
+}
+
+function pctChange(n, digits = 2) {
+  if (n == null || Number.isNaN(Number(n))) return null;
+  const v = Number(n);
+  const abs = Math.abs(v).toFixed(digits);
+  if (v > 0) return { text: `+${abs}%`, dir: "gain", arrow: "▲" };
+  if (v < 0) return { text: `${MINUS}${abs}%`, dir: "loss", arrow: "▼" };
+  return { text: `${(0).toFixed(digits)}%`, dir: "flat", arrow: "■" };
+}
+
+function deltaHtml(part) {
+  if (!part) return `<span class="ar-subtle">—</span>`;
+  return `<span class="ar-delta ar-delta--${part.dir}">${esc(part.text)} <span class="ar-delta__arrow">${part.arrow}</span></span>`;
+}
+
+function price(n) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  const v = Number(n);
+  const digits = v !== 0 && Math.abs(v) < 1 ? 4 : 2;
+  const abs = Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const body = `$${abs}`;
+  return v < 0 ? `${MINUS}${body}` : body;
+}
+
+function qty(n) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  const v = Number(n);
+  if (Number.isInteger(v)) return v.toLocaleString();
+  return String(Number(v.toFixed(4)));
+}
+
 function ratingClass(r) {
   const x = (r || "").toLowerCase();
-  if (x.includes("buy") || x.includes("overweight")) return "buy";
-  if (x.includes("underweight") || x.includes("sell")) return "sell";
-  return "hold";
+  if (x.includes("sell")) return "ar-rating ar-rating--sell";
+  if (x.includes("underweight")) return "ar-rating ar-rating--underweight";
+  if (x.includes("overweight")) return "ar-rating ar-rating--overweight";
+  if (x.includes("buy")) return "ar-rating ar-rating--buy";
+  return "ar-rating ar-rating--hold";
+}
+
+function ratingMarkup(r) {
+  if (!r) return `<span class="ar-subtle">—</span>`;
+  return `<span class="${ratingClass(r)}">${esc(r)}</span>`;
+}
+
+function actionClass(action) {
+  const x = (action || "").toLowerCase();
+  if (x.includes("sell") || x.includes("trim") || x.includes("reduce")) return "ar-loss";
+  if (x.includes("buy") || x === "add") return "ar-gain";
+  return "ar-flat";
+}
+
+function formatSessionDate(iso) {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+  if (!m) return String(iso);
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+function showToast(message, kind = "info") {
+  const stack = $("#toasts");
+  if (!stack) return;
+  const el = document.createElement("div");
+  el.className = `ar-toast ar-toast--${kind}`;
+  el.setAttribute("role", kind === "danger" ? "alert" : "status");
+  const icon = kind === "danger" ? "circle-x" : kind === "warn" ? "triangle-alert" : kind === "ok" ? "circle-check" : "info";
+  el.innerHTML = `${iconSvg(icon, "ar-icon")}<div class="ar-toast__body"><div class="ar-toast__text"></div></div>
+    <button type="button" class="ar-btn ar-btn--sm ar-btn--ghost" aria-label="Dismiss" data-tooltip="Dismiss">${iconSvg("x")}<span class="ar-btn__label">Dismiss</span></button>`;
+  el.querySelector(".ar-toast__text").textContent = message;
+  el.querySelector("button").addEventListener("click", () => el.remove());
+  stack.appendChild(el);
+  if (kind !== "danger") setTimeout(() => { el.remove(); }, 5000);
 }
 
 async function api(path, opts = {}) {
@@ -73,17 +179,56 @@ async function api(path, opts = {}) {
   return data;
 }
 
+/* ---------- theme ---------- */
+function syncChromeToggles() {
+  const choice = document.documentElement.getAttribute("data-theme") || "system";
+  $$("[data-theme-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === choice)));
+  const density = document.documentElement.getAttribute("data-density") || "comfortable";
+  $$("[data-density-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.densitySet === density)));
+}
+
+function repaintChart() {
+  if (state.tab === "portfolio" && state.portfolio) renderWeightsChart(state.portfolio);
+}
+
+$("#themeToggle").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-theme-set]");
+  if (!b || !window.argusSetTheme) return;
+  window.argusSetTheme(b.dataset.themeSet);
+  syncChromeToggles();
+  repaintChart();
+});
+
+$("#densityToggle").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-density-set]");
+  if (!b || !window.argusSetDensity) return;
+  window.argusSetDensity(b.dataset.densitySet);
+  syncChromeToggles();
+  if (state.chart) state.chart.resize();
+});
+
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (!document.documentElement.hasAttribute("data-theme")) repaintChart();
+});
+
 /* ---------- tabs ---------- */
-function setTab(name) {
+async function setTab(name) {
   state.tab = name;
-  $$(".nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
-  $$(".tab").forEach((t) => t.classList.toggle("hidden", t.id !== `tab-${name}`));
-  if (name === "portfolio") loadPortfolio();
-  if (name === "watchlist") loadWatchlist();
-  if (name === "reports") loadReports();
-  if (name === "fund") loadFund();
-  if (name === "themes") loadThemes();
-  if (name === "runs") loadRuns();
+  $$("#nav .ar-tab").forEach((b) => {
+    const on = b.dataset.tab === name;
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  $$(".ar-page").forEach((t) => t.classList.toggle("hidden", t.id !== `tab-${name}`));
+  try {
+    if (name === "portfolio") await loadPortfolio();
+    if (name === "watchlist") await loadWatchlist();
+    if (name === "reports") await loadReports();
+    if (name === "fund") await loadFund();
+    if (name === "themes") await loadThemes();
+    if (name === "runs") await loadRuns();
+  } catch (e) {
+    showToast(e.message, "danger");
+  }
 }
 
 $("#nav").addEventListener("click", (e) => {
@@ -93,59 +238,94 @@ $("#nav").addEventListener("click", (e) => {
 
 /* ---------- health ---------- */
 async function loadHealth() {
+  const pill = $("#healthPill");
   try {
     const h = await api("/api/health");
     state.flags = h.flags || {};
-    $("#healthPill").textContent = h.data_ok ? "connected" : "data missing";
+    pill.className = `ar-badge ${h.data_ok ? "ar-badge--ok" : "ar-badge--warn"}`;
+    pill.innerHTML = `<span class="ar-badge__dot"></span> ${h.data_ok ? "Connected" : "Data missing"}`;
     $("#optWlWrap").classList.toggle("hidden", !state.flags.IncludeWatchlist);
   } catch (e) {
-    $("#healthPill").textContent = "offline";
+    pill.className = "ar-badge ar-badge--danger";
+    pill.innerHTML = `<span class="ar-badge__dot"></span> Offline`;
   }
 }
 
 /* ---------- portfolio ---------- */
+function setHeaderAsOf(data) {
+  const el = $("#headerAsOf");
+  const when = formatSessionDate(data.prices_as_of);
+  if (!when) {
+    el.textContent = "Cost basis only · no prices yet";
+    return;
+  }
+  const stale = data.book_newer_than_stats
+    ? ` <span class="ar-badge ar-badge--warn" data-tooltip="As of ${esc(data.prices_as_of)}" tabindex="0">⚠ Stale</span>`
+    : "";
+  el.innerHTML = `Data as of ${esc(when)} · US session${stale}`;
+}
+
 async function loadPortfolio() {
   const data = await api("/api/portfolio");
   state.portfolio = data;
   state.bookTickers = (data.positions || []).map((p) => p.ticker);
-  let asOf = data.prices_as_of
-    ? `prices as of ${data.prices_as_of}`
-    : "cost basis only (no stats yet)";
-  if (data.book_newer_than_stats) asOf += " · book is newer than these prices";
-  $("#pfAsOf").textContent = asOf;
+  setHeaderAsOf(data);
   $("#pfSub").textContent = data.total_market_value != null
-    ? `NAV ${money(data.total_market_value)} · cash ${money(data.cash)}`
-    : `Cash ${money(data.cash)} · mark prices when a fund-manager stats file exists`;
+    ? `NAV ${moneyLevel(data.total_market_value)} · cash ${moneyLevel(data.cash)}`
+    : `Cash ${moneyLevel(data.cash)} · mark prices when a fund-manager stats file exists`;
 
   const pnl = data.account?.unrealized_pnl;
+  const change = moneyChange(pnl, true);
+  const allPriced = (data.positions || []).length > 0 && (data.positions || []).every((p) => p.price != null);
+  let pnlPct = null;
+  if (allPriced && pnl != null && data.total_cost != null) {
+    const basis = Number(data.total_cost) - Number(data.cash || 0);
+    if (basis) {
+      const raw = (pnl / basis) * 100;
+      pnlPct = pctChange(raw, Math.abs(raw) > 0 && Math.abs(raw) < 1 ? 2 : 1);
+    }
+  }
+  const pnlValue = change ? esc(change.text) : "—";
+  const pnlClass = change && change.dir !== "flat" ? `ar-${change.dir}` : "";
+  const pnlDelta = !change
+    ? `<span class="ar-subtle">—</span>`
+    : pnlPct
+      ? `${deltaHtml(pnlPct)} <span class="ar-subtle">vs cost</span>`
+      : deltaHtml({ text: "vs cost basis", dir: change.dir, arrow: change.arrow });
+
   $("#pfCards").innerHTML = `
-    <div class="card"><div class="label">Total value</div><div class="value">${money(data.total_market_value)}</div><div class="hint">invested + cash</div></div>
-    <div class="card"><div class="label">Cash</div><div class="value">${money(data.cash)}</div><div class="hint">${pct(data.cash_pct)} · target ${pct(data.cash_target_pct, 0)}</div></div>
-    <div class="card"><div class="label">Unrealized P&amp;L</div><div class="value ${pnl >= 0 ? "pos" : "neg"}">${money(pnl)}</div><div class="hint">vs cost basis</div></div>
-    <div class="card"><div class="label">Positions</div><div class="value">${data.positions.length}</div><div class="hint">currency ${data.currency || "USD"}</div></div>
+    <article class="ar-stat ar-span-3"><span class="ar-stat__label">Total value</span><span class="ar-stat__value">${esc(moneyLevel(data.total_market_value, true))}</span><span class="ar-stat__delta"><span class="ar-subtle">Invested + cash</span></span></article>
+    <article class="ar-stat ar-span-3"><span class="ar-stat__label">Cash</span><span class="ar-stat__value">${esc(moneyLevel(data.cash, true))}</span><span class="ar-stat__delta"><span class="ar-subtle">${esc(pctLevel(data.cash_pct, 1))} · target ${esc(pctLevel(data.cash_target_pct, 1))}</span></span></article>
+    <article class="ar-stat ar-span-3"><span class="ar-stat__label">Unrealized P&amp;L</span><span class="ar-stat__value ${pnlClass}">${pnlValue}</span><span class="ar-stat__delta">${pnlDelta}</span></article>
+    <article class="ar-stat ar-span-3"><span class="ar-stat__label">Positions</span><span class="ar-stat__value">${data.positions.length}</span><span class="ar-stat__delta"><span class="ar-subtle">Currency ${esc(data.currency || "USD")}</span></span></article>
   `;
 
   const tb = $("#pfTable tbody");
   tb.innerHTML = data.positions.map((p) => {
-    const pnlCls = (p.unrealized_pnl ?? 0) >= 0 ? "pos" : "neg";
-    return `<tr>
-      <td class="mono"><strong>${esc(p.ticker)}</strong></td>
-      <td class="muted">${esc(p.name || "")}</td>
-      <td class="muted">${esc(p.sub_theme || "")}</td>
-      <td class="num">${p.quantity}</td>
-      <td class="num">${money2(p.average_price)}</td>
-      <td class="num">${money2(p.price)}</td>
-      <td class="num">${money(p.market_value)}</td>
-      <td class="num ${pnlCls}">${money(p.unrealized_pnl)} <span class="muted">${p.unrealized_pnl_pct != null ? `(${pct(p.unrealized_pnl_pct)})` : ""}</span></td>
-      <td class="num">${pct(p.weight_pct)}</td>
-      <td class="num muted">${p.target_pct != null ? pct(p.target_pct, 0) : "—"}</td>
+    const rowChange = moneyChange(p.unrealized_pnl);
+    const rowPct = pctChange(p.unrealized_pnl_pct, 2);
+    const pnlCell = rowChange
+      ? `${deltaHtml(rowChange)}${rowPct ? ` ${deltaHtml(rowPct)}` : ""}`
+      : `<span class="ar-subtle">—</span>`;
+    const stale = p.price == null ? "is-stale" : "";
+    return `<tr class="${stale}">
+      <td class="ar-ticker">${esc(p.ticker)}</td>
+      <td class="ar-subtle">${esc(p.name || "")}</td>
+      <td class="ar-subtle">${esc(p.sub_theme || "")}</td>
+      <td class="ar-num">${qty(p.quantity)}</td>
+      <td class="ar-num">${price(p.average_price)}</td>
+      <td class="ar-num">${price(p.price)}</td>
+      <td class="ar-num">${moneyLevel(p.market_value)}</td>
+      <td class="ar-num">${pnlCell}</td>
+      <td class="ar-num">${pctLevel(p.weight_pct, 1)}</td>
+      <td class="ar-num ar-subtle">${p.target_pct != null ? pctLevel(p.target_pct, 1) : "—"}</td>
     </tr>`;
   }).join("");
 
   renderWeightsChart(data);
   const note = $("#aiSubNote");
   if (note) {
-    note.textContent = `Direct holding weight. Look-through warn cap is ${pct(data.ai_sleeve_cap_pct, 0)} (targets.json). SPY's sleeve fraction is not split into these rows.`;
+    note.textContent = `Direct holding weight. Look-through warn cap is ${pctLevel(data.ai_sleeve_cap_pct, 0)} (targets.json). SPY's sleeve fraction is not split into these rows.`;
   }
   const sub = $("#aiSubTable tbody");
   if (sub) sub.innerHTML = renderSubthemeRows(data.ai_subthemes, true);
@@ -171,33 +351,42 @@ function renderWeightsChart(data) {
 
   const ctx = $("#weightsChart");
   if (state.chart) state.chart.destroy();
+  const axis = cssVar("--argus-chart-axis");
+  const grid = cssVar("--argus-chart-grid");
+  const text = cssVar("--argus-text");
+  const font = cssVar("--argus-font-sans");
   state.chart = new Chart(ctx, {
     type: "bar",
     data: {
       labels,
       datasets: [
-        { label: "Current %", data: current, backgroundColor: "rgba(91,140,255,.75)" },
-        { label: "Target %", data: target, backgroundColor: "rgba(61,214,198,.55)" },
+        { label: "Current %", data: current, backgroundColor: cssVar("--argus-chart-1"), borderWidth: 0 },
+        { label: "Target %", data: target, backgroundColor: cssVar("--argus-chart-2"), borderWidth: 0 },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      font: { family: font },
       scales: {
-        x: { ticks: { color: "#8fa3c1" }, grid: { color: "rgba(255,255,255,.04)" } },
-        y: { ticks: { color: "#8fa3c1" }, grid: { color: "rgba(255,255,255,.06)" }, title: { display: true, text: "% of NAV", color: "#8fa3c1" } },
+        x: { ticks: { color: axis, font: { family: font } }, grid: { color: grid } },
+        y: {
+          ticks: { color: axis, font: { family: font } },
+          grid: { color: grid },
+          title: { display: true, text: "% of NAV", color: axis, font: { family: font } },
+        },
       },
-      plugins: { legend: { labels: { color: "#e8eef9" } } },
+      plugins: { legend: { labels: { color: text, font: { family: font } } } },
     },
   });
 }
 
 function renderSubthemeRows(rows, withValue) {
   return (rows || []).map((b) => {
-    const names = (b.tickers || []).map((t) => t.weight_pct != null ? `${t.ticker} ${pct(t.weight_pct)}` : t.ticker).join(", ") || "—";
-    const value = withValue ? `<td class="num">${money(b.market_value)}</td>` : `<td class="num">${b.count || 0}</td>`;
-    const weight = withValue ? `<td class="num">${pct(b.weight_pct)}</td>` : "";
-    return `<tr><td>${esc(b.label || b.id)}</td><td class="mono">${esc(names)}</td>${weight}${value}</tr>`;
+    const names = (b.tickers || []).map((t) => t.weight_pct != null ? `${t.ticker} ${pctLevel(t.weight_pct, 1)}` : t.ticker).join(", ") || "—";
+    const value = withValue ? `<td class="ar-num">${moneyLevel(b.market_value)}</td>` : `<td class="ar-num">${b.count || 0}</td>`;
+    const weight = withValue ? `<td class="ar-num">${pctLevel(b.weight_pct, 1)}</td>` : "";
+    return `<tr><td>${esc(b.label || b.id)}</td><td class="ar-mono">${esc(names)}</td>${weight}${value}</tr>`;
   }).join("");
 }
 
@@ -209,23 +398,24 @@ async function loadWatchlist() {
   if (sub) {
     sub.innerHTML = (data.subthemes || []).map((b) => {
       const names = (b.tickers || []).map((t) => t.ticker).join(", ") || "—";
-      return `<tr><td>${esc(b.label || b.id)}</td><td class="mono">${esc(names)}</td><td class="num">${b.count || 0}</td></tr>`;
+      return `<tr><td>${esc(b.label || b.id)}</td><td class="ar-mono">${esc(names)}</td><td class="ar-num">${b.count || 0}</td></tr>`;
     }).join("");
   }
   const tb = $("#wlTable tbody");
   tb.innerHTML = state.watchlist.map((it) => `
     <tr>
-      <td class="mono"><strong>${esc(it.ticker)}</strong></td>
+      <td class="ar-ticker">${esc(it.ticker)}</td>
       <td>${esc(it.sector || "")}</td>
       <td>${esc(it.type || "")}</td>
-      <td class="muted">${esc(it.sub_theme || "")}</td>
-      <td><button class="btn sm danger" data-rm="${esc(it.ticker)}">Remove</button></td>
-    </tr>`).join("") || `<tr><td colspan="5" class="muted">Empty watchlist</td></tr>`;
+      <td class="ar-subtle">${esc(it.sub_theme || "")}</td>
+      <td class="ar-actions"><button type="button" class="ar-btn ar-btn--sm ar-btn--danger" data-rm="${esc(it.ticker)}" aria-label="Remove ${esc(it.ticker)}" data-tooltip="Remove ${esc(it.ticker)}">${iconSvg("trash-2")}<span class="ar-btn__label">Remove</span></button></td>
+    </tr>`).join("") || `<tr><td colspan="5" class="ar-subtle">Empty watchlist</td></tr>`;
 }
 
 $("#wlAdd").addEventListener("click", async () => {
   const err = $("#wlErr");
   err.classList.add("hidden");
+  $("#wlTicker").removeAttribute("aria-invalid");
   try {
     await api("/api/watchlist", {
       method: "POST",
@@ -239,17 +429,20 @@ $("#wlAdd").addEventListener("click", async () => {
     $("#wlTicker").value = "";
     await loadWatchlist();
   } catch (e) {
-    err.textContent = e.message;
+    $("#wlErrText").textContent = e.message;
     err.classList.remove("hidden");
+    $("#wlTicker").setAttribute("aria-invalid", "true");
   }
 });
 
-$("#wlTable").addEventListener("click", async (e) => {
-  const t = e.target.getAttribute("data-rm");
-  if (!t) return;
-  if (!confirm(`Remove ${t} from watchlist?`)) return;
-  await api(`/api/watchlist/${encodeURIComponent(t)}`, { method: "DELETE" });
-  await loadWatchlist();
+$("#wlTable").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-rm]");
+  if (!btn) return;
+  state.pendingRun = null;
+  state.pendingTheme = null;
+  state.pendingRemove = btn.getAttribute("data-rm");
+  $("#confirmText").textContent = `Remove ${state.pendingRemove} from the watchlist?`;
+  openConfirm();
 });
 
 /* ---------- reports ---------- */
@@ -263,7 +456,7 @@ async function loadReports() {
   sel.innerHTML = `<option value="">All tickers</option>` + tickers.map((t) => {
     const lat = state.latestByTicker[t];
     const r = lat?.rating ? ` (${lat.rating})` : "";
-    return `<option value="${t}">${t}${r}</option>`;
+    return `<option value="${esc(t)}">${esc(t + r)}</option>`;
   }).join("");
   sel.value = cur;
   renderReportList();
@@ -274,17 +467,17 @@ function renderReportList() {
   const items = state.reports.filter((r) => !filter || r.ticker === filter);
   $("#repList").innerHTML = items.map((r) => {
     const latest = state.latestByTicker[r.ticker]?.id === r.id;
-    const rc = ratingClass(r.rating);
-    return `<div class="list-item ${state.selectedReport === r.id ? "active" : ""}" data-id="${r.id}">
+    const on = state.selectedReport === r.id;
+    return `<div class="ar-list__item" role="option" aria-selected="${on ? "true" : "false"}" data-id="${esc(r.id)}">
       <div>
-        <div><strong class="mono">${r.ticker}</strong>
-          ${r.rating ? `<span class="rating ${rc}">${r.rating}</span>` : ""}
-          ${latest ? `<span class="muted">· latest</span>` : ""}
+        <div><span class="ar-ticker">${esc(r.ticker)}</span>
+          ${r.rating ? ratingMarkup(r.rating) : ""}
+          ${latest ? `<span class="ar-badge ar-badge--neutral">● Latest</span>` : ""}
         </div>
-        <div class="meta">${r.analysis_date || r.ymd || ""} · ${r.generated || r.stamp || r.id}</div>
+        <div class="ar-list__meta">${esc(r.analysis_date || r.ymd || "")} · ${esc(r.generated || r.stamp || r.id)}</div>
       </div>
     </div>`;
-  }).join("") || `<div class="muted">No reports yet</div>`;
+  }).join("") || `<div class="ar-muted">No reports yet</div>`;
 }
 
 $("#repFilter").addEventListener("change", renderReportList);
@@ -293,12 +486,15 @@ $("#repList").addEventListener("click", async (e) => {
   if (!item) return;
   state.selectedReport = item.dataset.id;
   renderReportList();
-  const data = await api(`/api/reports/${encodeURIComponent(item.dataset.id)}`);
-  $("#repTitle").textContent = data.meta.ticker;
-  const rc = ratingClass(data.meta.rating);
-  $("#repMeta").innerHTML = `${data.meta.rating ? `<span class="rating ${rc}">${data.meta.rating}</span> · ` : ""}
-    analysis ${data.meta.analysis_date || "—"} · generated ${data.meta.generated || "—"}`;
-  renderMarkdown($("#repMd"), data.markdown || "");
+  try {
+    const data = await api(`/api/reports/${encodeURIComponent(item.dataset.id)}`);
+    $("#repTitle").textContent = data.meta.ticker;
+    $("#repMeta").innerHTML = `${data.meta.rating ? `${ratingMarkup(data.meta.rating)} · ` : ""}
+      analysis ${esc(data.meta.analysis_date || "—")} · generated ${esc(data.meta.generated || "—")}`;
+    renderMarkdown($("#repMd"), data.markdown || "");
+  } catch (err) {
+    showToast(err.message, "danger");
+  }
 });
 
 /* ---------- fund manager ---------- */
@@ -314,24 +510,24 @@ async function loadFund(path) {
       return `<option value="${esc(id)}" ${id === (data.path || data.date) ? "selected" : ""}>${esc(label)}</option>`;
     }).join("") || `<option value="">No runs</option>`;
     $("#fmHistory").innerHTML = (data.history || []).map((h) => `
-      <div class="list-item" data-path="${esc(h.path || h.date)}">
+      <div class="ar-list__item" data-path="${esc(h.path || h.date)}">
         <div><strong>${esc(h.path || h.date)}</strong>
-          <div class="meta">${[h.kind, h.has_json && "json", h.has_stats && "stats"].filter(Boolean).join(" · ")}</div>
+          <div class="ar-list__meta">${esc([h.kind, h.has_json && "json", h.has_stats && "stats"].filter(Boolean).join(" · "))}</div>
         </div>
-      </div>`).join("") || `<div class="muted">No history</div>`;
+      </div>`).join("") || `<div class="ar-muted">No history</div>`;
   }
   $("#fmSub").textContent = data.path ? `Plan ${data.path}` : "No fund manager output yet";
   const trades = data.trades || [];
   $("#fmTrades tbody").innerHTML = trades.map((t) => `
     <tr>
-      <td class="mono"><strong>${esc(t.ticker)}</strong></td>
-      <td class="action ${esc((t.action || "").toLowerCase())}">${esc(t.action)}</td>
-      <td class="num">${t.shares ?? "—"}</td>
-      <td class="num">${money2(t.calc_price ?? t.est_price)}</td>
-      <td><span class="rating ${ratingClass(t.agent_rating)}">${esc(t.agent_rating || "—")}</span></td>
-      <td class="muted">${esc(t.follows_agent || "")}</td>
-      <td class="muted">${esc((t.rationale || "").slice(0, 160))}${(t.rationale || "").length > 160 ? "…" : ""}</td>
-    </tr>`).join("") || `<tr><td colspan="7" class="muted">No trades in this run</td></tr>`;
+      <td class="ar-ticker">${esc(t.ticker)}</td>
+      <td class="${actionClass(t.action)}">${esc(t.action)}</td>
+      <td class="ar-num">${t.shares == null || t.shares === "" ? "—" : qty(t.shares)}</td>
+      <td class="ar-num">${price(t.calc_price ?? t.est_price)}</td>
+      <td>${ratingMarkup(t.agent_rating)}</td>
+      <td class="ar-subtle">${esc(t.follows_agent || "")}</td>
+      <td class="ar-wrap ar-subtle">${esc((t.rationale || "").slice(0, 160))}${(t.rationale || "").length > 160 ? "…" : ""}</td>
+    </tr>`).join("") || `<tr><td colspan="7" class="ar-subtle">No trades in this run</td></tr>`;
 
   const d = data.decision || {};
   const summary = d.decision_summary || d.diagnosis || "";
@@ -339,20 +535,20 @@ async function loadFund(path) {
   const cash = d.cash_decision || data.cash_decision || {};
   $("#fmSummary").innerHTML = `
     <p><strong>${esc(d.headline || "—")}</strong></p>
-    <p>${summary ? esc(summary) : "<span class='muted'>No summary field</span>"}</p>
-    <p class="muted">Confidence: ${esc(d.confidence ?? "—")}
+    <p>${summary ? esc(summary) : "<span class='ar-muted'>No summary field</span>"}</p>
+    <p class="ar-subtle">Confidence: ${esc(d.confidence ?? "—")}
       ${cash.target_cash_pct != null ? ` · target cash ${esc(cash.target_cash_pct)}%` : ""}
-      ${data.ending_cash != null ? ` · post-trade cash ${money(data.ending_cash)} (${esc(data.ending_cash_pct)}%)` : ""}</p>
+      ${data.ending_cash != null ? ` · post-trade cash ${moneyLevel(data.ending_cash)} (${esc(data.ending_cash_pct)}%)` : ""}</p>
     ${warns ? `<ul>${warns}</ul>` : ""}`;
   renderMarkdown($("#fmMd"), data.markdown || "");
 }
 
-$("#fmDate").addEventListener("change", (e) => loadFund(e.target.value));
+$("#fmDate").addEventListener("change", (e) => loadFund(e.target.value).catch((err) => showToast(err.message, "danger")));
 $("#fmHistory").addEventListener("click", (e) => {
   const it = e.target.closest("[data-path]");
   if (!it) return;
   $("#fmDate").value = it.dataset.path;
-  loadFund(it.dataset.path);
+  loadFund(it.dataset.path).catch((err) => showToast(err.message, "danger"));
 });
 
 /* ---------- runs ---------- */
@@ -382,13 +578,13 @@ function buildTickerGrid() {
     if (!all.find((x) => x.t === w.ticker)) all.push({ t: w.ticker, g: "watch", sector: w.sector });
   });
   $("#tickerGrid").innerHTML = all.map(({ t, g, sector }) => `
-    <label class="ticker-chip ${selected.has(t) ? "on" : ""}">
-      <input type="checkbox" value="${t}" ${selected.has(t) ? "checked" : ""} />
-      <span><strong class="mono">${t}</strong><br/><span class="muted">${g === "book" ? "book" : (sector || "watch")}</span></span>
+    <label class="ar-check ar-ticker-chip ${selected.has(t) ? "on" : ""}">
+      <input type="checkbox" value="${esc(t)}" ${selected.has(t) ? "checked" : ""} />
+      <span><strong>${esc(t)}</strong><br/><span class="ar-subtle">${g === "book" ? "book" : esc(sector || "watch")}</span></span>
     </label>`).join("");
   $$("#tickerGrid input").forEach((inp) => {
     inp.addEventListener("change", () => {
-      inp.closest(".ticker-chip").classList.toggle("on", inp.checked);
+      inp.closest(".ar-ticker-chip").classList.toggle("on", inp.checked);
       updateRunWarn();
     });
   });
@@ -410,7 +606,7 @@ function updateRunWarn() {
   } else {
     msg = "Fund manager only: 5 calls (draft, aggressive, conservative, neutral, final), about 9 minutes. Conservative is Opus; neutral is Luna. The last committee with that Opus seat was about $1.20.";
   }
-  $("#runWarn").textContent = msg;
+  $("#runWarnText").textContent = msg;
 }
 
 ["optRunAgents", "optNoLLM"].forEach((id) => $(`#${id}`).addEventListener("change", updateRunWarn));
@@ -418,7 +614,7 @@ function updateRunWarn() {
 $("#selBook").addEventListener("click", () => {
   $$("#tickerGrid input").forEach((i) => {
     i.checked = state.bookTickers.includes(i.value);
-    i.closest(".ticker-chip").classList.toggle("on", i.checked);
+    i.closest(".ar-ticker-chip").classList.toggle("on", i.checked);
   });
   updateRunWarn();
 });
@@ -426,31 +622,38 @@ $("#selWatch").addEventListener("click", () => {
   const w = new Set(state.watchlist.map((x) => x.ticker));
   $$("#tickerGrid input").forEach((i) => {
     i.checked = w.has(i.value);
-    i.closest(".ticker-chip").classList.toggle("on", i.checked);
+    i.closest(".ar-ticker-chip").classList.toggle("on", i.checked);
   });
   updateRunWarn();
 });
 $("#selNone").addEventListener("click", () => {
-  $$("#tickerGrid input").forEach((i) => { i.checked = false; i.closest(".ticker-chip").classList.remove("on"); });
+  $$("#tickerGrid input").forEach((i) => { i.checked = false; i.closest(".ar-ticker-chip").classList.remove("on"); });
   updateRunWarn();
 });
 $("#selEtfs").addEventListener("click", () => {
   const etfs = new Set(state.watchlist.filter((x) => x.type === "etf").map((x) => x.ticker));
   $$("#tickerGrid input").forEach((i) => {
     i.checked = etfs.has(i.value);
-    i.closest(".ticker-chip").classList.toggle("on", i.checked);
+    i.closest(".ar-ticker-chip").classList.toggle("on", i.checked);
   });
   updateRunWarn();
 });
 
+function statusMarkup(status) {
+  const s = status || "";
+  if (s === "succeeded") return `<span class="ar-gain">✓ ${esc(s)}</span>`;
+  if (s === "failed") return `<span class="ar-loss">✕ ${esc(s)}</span>`;
+  return `<span class="ar-flat">● ${esc(s)}</span>`;
+}
+
 function renderRunList() {
   $("#runList").innerHTML = state.runs.map((r) => `
-    <div class="list-item ${state.selectedRun === r.id ? "active" : ""}" data-run="${r.id}">
+    <div class="ar-list__item" aria-selected="${state.selectedRun === r.id ? "true" : "false"}" data-run="${esc(r.id)}">
       <div>
-        <div><strong class="mono">${r.id}</strong> · <span class="${r.status === "succeeded" ? "pos" : r.status === "failed" ? "neg" : ""}">${r.status}</span></div>
-        <div class="meta">${r.started_at || ""} · est ${r.estimate_minutes ?? "?"} min · tickers ${r.ticker_count ?? "?"}</div>
+        <div><span class="ar-mono">${esc(r.id)}</span> · ${statusMarkup(r.status)}</div>
+        <div class="ar-list__meta">${esc(r.started_at || "")} · est ${esc(r.estimate_minutes ?? "?")} min · tickers ${esc(r.ticker_count ?? "?")}</div>
       </div>
-    </div>`).join("") || `<div class="muted">No runs yet</div>`;
+    </div>`).join("") || `<div class="ar-muted">No runs yet</div>`;
 }
 
 $("#runList").addEventListener("click", (e) => {
@@ -459,11 +662,32 @@ $("#runList").addEventListener("click", (e) => {
   selectRun(it.dataset.run);
 });
 
+function logLineClass(line) {
+  const s = line.toLowerCase();
+  if (/\b(error|exception|traceback)\b|status=failed/.test(s)) return "ar-log__line--error";
+  if (/\bwarn/.test(s)) return "ar-log__line--warn";
+  if (/status=succeeded|\bdone\b/.test(s)) return "ar-log__line--ok";
+  return "ar-log__line--info";
+}
+
+function renderLog() {
+  const el = $("#runLog");
+  if (!state.logText) {
+    el.innerHTML = `<div class="ar-log__line ar-log__line--info"><span class="ar-log__msg">Select a run to tail its log.</span></div>`;
+    return;
+  }
+  el.innerHTML = state.logText.split(/\n/).map((line) => (
+    `<div class="ar-log__line ${logLineClass(line)}"><span class="ar-log__msg">${esc(line) || " "}</span></div>`
+  )).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
 async function selectRun(id) {
   state.selectedRun = id;
   state.logOffset = 0;
+  state.logText = "";
   renderRunList();
-  $("#runLog").textContent = "";
+  renderLog();
   if (state.logTimer) clearInterval(state.logTimer);
   await pollLog();
   state.logTimer = setInterval(pollLog, 1500);
@@ -474,9 +698,9 @@ async function pollLog() {
   try {
     const data = await api(`/api/runs/${encodeURIComponent(state.selectedRun)}/log?from_byte=${state.logOffset}`);
     if (data.chunk) {
-      $("#runLog").textContent += data.chunk;
-      $("#runLog").scrollTop = $("#runLog").scrollHeight;
+      state.logText += data.chunk;
       state.logOffset = data.offset;
+      renderLog();
     }
     if (data.done && state.logTimer) {
       clearInterval(state.logTimer);
@@ -506,73 +730,136 @@ $("#btnStartRun").addEventListener("click", () => {
   else if (body.run_agents) est = `~${Math.round(n * 2.5)} min + model fees, then 5 fund-manager calls`;
   else est = "~9 min, 5 model calls (Opus for conservative, Luna for neutral)";
   state.pendingTheme = null;
+  state.pendingRemove = null;
   state.pendingRun = body;
   $("#confirmText").textContent = `Start this run? Estimate: ${est}. Tickers: ${body.tickers.length ? body.tickers.join(", ") : "(default / none)"}.`;
-  $("#confirmModal").classList.remove("hidden");
+  openConfirm();
 });
 
-$("#confirmCancel").addEventListener("click", () => {
+function isPendingPaid() {
+  if (state.pendingRemove) return false;
+  if (state.pendingTheme) return state.pendingTheme.mode === "weekly" && !!state.pendingTheme.include_llm;
+  const b = state.pendingRun;
+  if (!b) return false;
+  return !(b.no_llm && !b.run_agents);
+}
+
+function setConfirmButton(label, variant, icon) {
+  const btn = $("#confirmGo");
+  btn.className = `ar-btn ar-btn--${variant}`;
+  btn.innerHTML = `${iconSvg(icon)}<span class="ar-btn__label">${esc(label)}</span>`;
+}
+
+function openConfirm() {
+  const paid = isPendingPaid();
+  const icon = $("#confirmIcon");
+  icon.className = `ar-dialog__icon${state.pendingRemove ? " ar-dialog__icon--danger" : ""}`;
+  icon.innerHTML = iconSvg(state.pendingRemove ? "trash-2" : "triangle-alert", "ar-icon");
+  $("#confirmConsentWrap").classList.toggle("hidden", !paid);
+  $("#confirmConsent").checked = false;
+  $("#confirmGo").disabled = paid;
+  if (state.pendingRemove) {
+    $("#confirmTitle").textContent = "Remove from watchlist";
+    $("#confirmCaption").textContent = "Writes data/watchlist.json after a backup.";
+    setConfirmButton("Remove", "danger", "trash-2");
+  } else if (state.pendingTheme?.mode === "screen") {
+    $("#confirmTitle").textContent = "Run daily screen";
+    $("#confirmCaption").textContent = "This step does not call a paid model.";
+    setConfirmButton("Run screen", "primary", "play");
+  } else if (state.pendingTheme) {
+    $("#confirmTitle").textContent = paid ? "Start a paid run?" : "Weekly scout";
+    $("#confirmCaption").textContent = paid
+      ? "Uses OpenRouter credits. Argus never shows your API keys."
+      : "This step does not call a paid model.";
+    setConfirmButton("Weekly scout", "primary", "play");
+  } else {
+    $("#confirmTitle").textContent = paid ? "Start a paid run?" : "Confirm run";
+    $("#confirmCaption").textContent = paid
+      ? "Uses OpenRouter credits. Argus never shows your API keys."
+      : "This step does not call a paid model.";
+    setConfirmButton("Start run", "primary", "play");
+  }
+  $("#confirmModal").showModal();
+}
+
+$("#confirmCancel").addEventListener("click", () => $("#confirmModal").close());
+$("#confirmModal").addEventListener("close", () => {
+  if (closingFromConfirm) return;
   state.pendingRun = null;
   state.pendingTheme = null;
-  $("#confirmModal").classList.add("hidden");
+  state.pendingRemove = null;
+});
+$("#confirmConsent").addEventListener("change", (e) => {
+  if (!$("#confirmConsentWrap").classList.contains("hidden")) $("#confirmGo").disabled = !e.target.checked;
 });
 
 $("#confirmGo").addEventListener("click", async () => {
-  const theme = state.pendingTheme;
-  const body = theme ? { ...theme, confirm: true } : { ...state.pendingRun, confirm: true };
-  $("#confirmModal").classList.add("hidden");
+  const theme = state.pendingTheme ? { ...state.pendingTheme, confirm: true } : null;
+  const body = !theme && state.pendingRun ? { ...state.pendingRun, confirm: true } : null;
+  const remove = state.pendingRemove;
+  state.pendingTheme = null;
+  state.pendingRun = null;
+  state.pendingRemove = null;
+  closingFromConfirm = true;
+  $("#confirmModal").close();
+  closingFromConfirm = false;
   try {
-    if (theme) {
-      state.pendingTheme = null;
-      const res = await api("/api/theme-scout", { method: "POST", body: JSON.stringify(body) });
-      setTab("runs");
-      await loadRuns();
-      if (res.run?.id) selectRun(res.run.id);
+    if (remove) {
+      await api(`/api/watchlist/${encodeURIComponent(remove)}`, { method: "DELETE" });
+      await loadWatchlist();
       return;
     }
+    if (theme) {
+      const res = await api("/api/theme-scout", { method: "POST", body: JSON.stringify(theme) });
+      await setTab("runs");
+      if (res.run?.id) await selectRun(res.run.id);
+      return;
+    }
+    if (!body) return;
     const res = await api("/api/runs", { method: "POST", body: JSON.stringify(body) });
-    state.pendingRun = null;
     await loadRuns();
-    if (res.run?.id) selectRun(res.run.id);
+    if (res.run?.id) await selectRun(res.run.id);
   } catch (e) {
-    alert(e.message);
+    showToast(e.message, "danger");
   }
 });
 
 /* ---------- themes ---------- */
 async function loadThemes() {
   const data = await api("/api/theme-scout");
-  $("#themeAsOf").textContent = data.date ? data.date : "no report yet";
+  const when = formatSessionDate(data.date);
+  $("#themeAsOf").textContent = when ? `As of ${when}` : "No report yet";
   $("#themeSub").textContent = data.model_skipped === false
     ? "Weekly scout included the Sol call"
     : "Latest pack did not call a model";
   const screen = data.screen || [];
   $("#themeScreen tbody").innerHTML = screen.slice(0, 40).map((r) => `<tr>
-    <td class="num">${r.rank ?? ""}</td>
-    <td class="mono"><strong>${esc(r.ticker || "")}</strong></td>
-    <td class="num">${r.score ?? ""}</td>
-    <td class="num">${r.rs_1m ?? ""}</td>
-    <td class="num">${r.dist_ma50 ?? ""}</td>
-    <td class="num">${r.atr_pct ?? ""}</td>
-    <td class="num">${r.earnings_days ?? ""}</td>
-  </tr>`).join("") || `<tr><td colspan="7" class="muted">No screen yet</td></tr>`;
+    <td class="ar-num">${r.rank ?? "—"}</td>
+    <td class="ar-ticker">${esc(r.ticker || "")}</td>
+    <td class="ar-num">${r.score == null || r.score === "" ? "—" : Number(r.score).toFixed(3)}</td>
+    <td class="ar-num">${deltaHtml(pctChange(r.rs_1m, 2))}</td>
+    <td class="ar-num">${deltaHtml(pctChange(r.dist_ma50, 2))}</td>
+    <td class="ar-num">${r.atr_pct == null || r.atr_pct === "" ? "—" : pctLevel(r.atr_pct, 2)}</td>
+    <td class="ar-num">${r.earnings_days == null || r.earnings_days === "" ? "—" : esc(r.earnings_days)}</td>
+  </tr>`).join("") || `<tr><td colspan="7" class="ar-subtle">No screen yet</td></tr>`;
   const rs = data.relative_strength || [];
   $("#themeRs tbody").innerHTML = rs.map((r) => `<tr>
     <td>${esc(r.id || "")}</td>
-    <td class="num">${r.rs_1w ?? ""}</td>
-    <td class="num">${r.rs_1m ?? ""}</td>
-    <td class="num">${r.rs_3m ?? ""}</td>
-  </tr>`).join("") || `<tr><td colspan="4" class="muted">Run a weekly pack to fill this</td></tr>`;
+    <td class="ar-num">${deltaHtml(pctChange(r.rs_1w, 2))}</td>
+    <td class="ar-num">${deltaHtml(pctChange(r.rs_1m, 2))}</td>
+    <td class="ar-num">${deltaHtml(pctChange(r.rs_3m, 2))}</td>
+  </tr>`).join("") || `<tr><td colspan="4" class="ar-subtle">Run a weekly pack to fill this</td></tr>`;
   const changes = data.changes || [];
   $("#themeChanges").innerHTML = changes.length
-    ? changes.map((c) => `<div>${esc(c.action || "")} <span class="mono">${esc(c.ticker || "")}</span> ${esc(c.reason || "")}</div>`).join("")
-    : "No watchlist edits in this pack.";
+    ? changes.map((c) => `<div>${esc(c.action || "")} <span class="ar-mono">${esc(c.ticker || "")}</span> ${esc(c.reason || "")}</div>`).join("")
+    : `<p class="ar-muted">No watchlist edits in this pack.</p>`;
   renderMarkdown($("#themeMd"), data.markdown || "_No theme-scout report yet._");
 }
 
 function queueThemeRun(mode) {
   const includeLlm = mode === "weekly" && $("#optScoutLlm").checked;
   state.pendingRun = null;
+  state.pendingRemove = null;
   state.pendingTheme = { mode, include_llm: includeLlm, confirm: false };
   const est = mode === "screen"
     ? "Daily screen is free and does not edit the watchlist. A few minutes of price and earnings lookups."
@@ -580,7 +867,7 @@ function queueThemeRun(mode) {
       ? "Weekly scout: one Sol call, about $0.10–$0.30, then a watchlist backup and update."
       : "Weekly pack without the Sol call. Free. The watchlist is not edited.");
   $("#confirmText").textContent = est;
-  $("#confirmModal").classList.remove("hidden");
+  openConfirm();
 }
 
 $("#btnScreen").addEventListener("click", () => queueThemeRun("screen"));
@@ -588,10 +875,11 @@ $("#btnScout").addEventListener("click", () => queueThemeRun("weekly"));
 
 /* ---------- boot ---------- */
 (async function boot() {
+  syncChromeToggles();
   try {
     const res = await fetch("/api/session");
     if (res.ok) state.token = (await res.json()).token;
   } catch (_) { /* runs will 401 until a session token loads */ }
   await loadHealth();
-  setTab("portfolio");
+  await setTab("portfolio");
 })();
