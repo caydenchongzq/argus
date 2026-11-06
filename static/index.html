@@ -52,7 +52,7 @@
               <table id="pfTable">
                 <thead>
                   <tr>
-                    <th>Ticker</th><th>Name</th>
+                    <th>Ticker</th><th>Name</th><th>Sub-theme</th>
                     <th class="num">Qty</th><th class="num">Avg</th><th class="num">Price</th>
                     <th class="num">Value</th><th class="num">P&amp;L</th>
                     <th class="num">Weight</th><th class="num">Target</th>
@@ -65,6 +65,16 @@
           <div class="panel">
             <h3>Current vs target</h3>
             <div class="chart-wrap"><canvas id="weightsChart"></canvas></div>
+          </div>
+        </div>
+        <div class="panel" style="margin-top:14px">
+          <h3>AI sub-themes</h3>
+          <div class="sub" id="aiSubNote">Direct holding weight. The look-through warn cap is separate.</div>
+          <div style="overflow:auto">
+            <table id="aiSubTable">
+              <thead><tr><th>Sub-theme</th><th>Holdings</th><th class="num">Weight</th><th class="num">Value</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -82,11 +92,27 @@
             <input class="input" id="wlTicker" placeholder="Ticker" style="width:120px" />
             <input class="input" id="wlSector" placeholder="Sector" style="width:180px" />
             <select class="select" id="wlType"><option value="stock">stock</option><option value="etf">etf</option></select>
+            <select class="select" id="wlSub">
+              <option value="">sub-theme</option>
+              <option value="ai_energy">AI energy</option>
+              <option value="ai_memory_storage">AI memory &amp; storage</option>
+              <option value="ai_compute_semis">AI compute &amp; semis</option>
+              <option value="ai_network_fibre">AI network &amp; fibre</option>
+              <option value="ai_cloud_software">AI cloud &amp; software</option>
+              <option value="physical_ai">Physical AI</option>
+            </select>
             <button class="btn primary" id="wlAdd">Add</button>
           </div>
           <div id="wlErr" class="err-box hidden"></div>
+          <h3>AI sub-themes</h3>
+          <div class="sub">Candidates in each bucket. Exposure is on the Portfolio tab, because these names are not held.</div>
+          <table id="wlSubTable">
+            <thead><tr><th>Sub-theme</th><th>Candidates</th><th class="num">Count</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <h3 style="margin-top:18px">Candidates</h3>
           <table id="wlTable">
-            <thead><tr><th>Ticker</th><th>Sector</th><th>Type</th><th></th></tr></thead>
+            <thead><tr><th>Ticker</th><th>Sector</th><th>Type</th><th>Sub-theme</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>

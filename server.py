@@ -35,6 +35,15 @@ DATA = TA_ROOT / "data"
 BOOK = DATA / "my_book.json"
 TARGETS = DATA / "targets.json"
 WATCHLIST = DATA / "watchlist.json"
+THEMES = TA_ROOT / "addons" / "fund_manager" / "themes.json"
+SUBTHEME_ORDER = (
+    "ai_energy",
+    "ai_memory_storage",
+    "ai_compute_semis",
+    "ai_network_fibre",
+    "ai_cloud_software",
+    "physical_ai",
+)
 REPORTS_DIR = DATA / "logs" / "reports"
 FUND_DIR = DATA / "fund_manager"
 RUN_SCRIPT = TA_ROOT / "addons" / "fund_manager" / "run_portfolio.ps1"
@@ -322,6 +331,7 @@ class WatchlistAdd(BaseModel):
     ticker: str
     sector: str = "Other"
     type: str = Field(default="stock", pattern="^(stock|etf)$")
+    sub_theme: str = ""
 
 
 class RunRequest(BaseModel):
@@ -367,6 +377,73 @@ def config():
 @app.get("/api/session")
 def session():
     return {"token": CONFIRM_TOKEN, "header": "X-Argus-Confirm"}
+
+
+def _theme_file() -> dict:
+    if not THEMES.exists():
+        return {}
+    data = _read_json(THEMES)
+    return data if isinstance(data, dict) else {}
+
+
+def _subtheme_index() -> dict[str, str]:
+    index: dict[str, str] = {}
+    for name, members in (_theme_file().get("subthemes") or {}).items():
+        for ticker in members or []:
+            index[str(ticker).upper()] = str(name)
+    return index
+
+
+def _subtheme_labels() -> dict[str, str]:
+    labels = {
+        "ai_energy": "AI energy",
+        "ai_memory_storage": "AI memory & storage",
+        "ai_compute_semis": "AI compute & semis",
+        "ai_network_fibre": "AI network & fibre",
+        "ai_cloud_software": "AI cloud & software",
+        "physical_ai": "Physical AI",
+    }
+    labels.update(_theme_file().get("subtheme_labels") or {})
+    return labels
+
+
+def _subtheme_table(rows: list[dict], weight_key: str = "weight_pct") -> list[dict]:
+    """Direct exposure for holdings, or a name list for the watchlist."""
+    labels = _subtheme_labels()
+    index = _subtheme_index()
+    defined = list((_theme_file().get("subthemes") or {}).keys()) or list(SUBTHEME_ORDER)
+    buckets = {
+        name: {"id": name, "label": labels.get(name, name), "weight_pct": 0.0,
+               "market_value": 0.0, "count": 0, "tickers": []}
+        for name in defined
+    }
+    for row in rows:
+        ticker = str(row.get("ticker") or "").upper()
+        name = row.get("sub_theme") or index.get(ticker)
+        if not name:
+            continue
+        bucket = buckets.setdefault(name, {
+            "id": name, "label": labels.get(name, name), "weight_pct": 0.0,
+            "market_value": 0.0, "count": 0, "tickers": []})
+        weight = row.get(weight_key)
+        value = row.get("market_value")
+        if isinstance(weight, (int, float)):
+            bucket["weight_pct"] += float(weight)
+        if isinstance(value, (int, float)):
+            bucket["market_value"] += float(value)
+        bucket["count"] += 1
+        bucket["tickers"].append({
+            "ticker": ticker,
+            "weight_pct": round(float(weight), 1) if isinstance(weight, (int, float)) else None,
+        })
+    order = defined + [name for name in buckets if name not in defined]
+    out = []
+    for name in order:
+        bucket = buckets[name]
+        bucket["weight_pct"] = round(bucket["weight_pct"], 1)
+        bucket["market_value"] = round(bucket["market_value"], 2)
+        out.append(bucket)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +493,7 @@ def portfolio():
             "sector": st.get("sector"),
             "name": st.get("name"),
             "target_pct": (targets.get("weights_pct") or {}).get(t),
+            "sub_theme": _subtheme_index().get(str(t).upper()),
         })
 
     cash = float(book.get("cash") or 0)
@@ -462,6 +540,8 @@ def portfolio():
         "stats_run": stats.get("run") if stats else None,
         "prices_as_of": (stats.get("as_of_prices") if stats else None),
         "book_newer_than_stats": book_newer,
+        "ai_subthemes": _subtheme_table(rows),
+        "ai_sleeve_cap_pct": float((targets.get("ai_sleeve") or {}).get("cap_pct") or 50),
     }
 
 
@@ -472,13 +552,24 @@ def portfolio():
 @app.get("/api/watchlist")
 def get_watchlist():
     if not WATCHLIST.exists():
-        return {"items": []}
+        return {"items": [], "subthemes": _subtheme_table([])}
     data = _read_json(WATCHLIST)
     if isinstance(data, dict):
         items = data.get("items") or data.get("tickers") or []
     else:
         items = data
-    return {"items": items}
+    index = _subtheme_index()
+    cleaned = []
+    for item in items:
+        if isinstance(item, str):
+            item = {"ticker": item}
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        ticker = str(row.get("ticker") or "").upper()
+        row["sub_theme"] = row.get("sub_theme") or index.get(ticker)
+        cleaned.append(row)
+    return {"items": cleaned, "subthemes": _subtheme_table(cleaned)}
 
 
 @app.post("/api/watchlist")
@@ -493,6 +584,10 @@ def add_watchlist(item: WatchlistAdd):
         bak = WATCHLIST.with_suffix(WATCHLIST.suffix + f".bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}")
         shutil.copy2(WATCHLIST, bak)
     entry = {"ticker": ticker, "sector": item.sector.strip() or "Other", "type": item.type}
+    if item.sub_theme:
+        if item.sub_theme not in _subtheme_labels() and item.sub_theme not in SUBTHEME_ORDER:
+            raise HTTPException(400, f"Unknown sub_theme {item.sub_theme}")
+        entry["sub_theme"] = item.sub_theme
     current.append(entry)
     _write_json(WATCHLIST, current)
     return {"ok": True, "items": current}

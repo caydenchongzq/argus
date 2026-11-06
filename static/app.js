@@ -129,6 +129,7 @@ async function loadPortfolio() {
     return `<tr>
       <td class="mono"><strong>${esc(p.ticker)}</strong></td>
       <td class="muted">${esc(p.name || "")}</td>
+      <td class="muted">${esc(p.sub_theme || "")}</td>
       <td class="num">${p.quantity}</td>
       <td class="num">${money2(p.average_price)}</td>
       <td class="num">${money2(p.price)}</td>
@@ -140,6 +141,12 @@ async function loadPortfolio() {
   }).join("");
 
   renderWeightsChart(data);
+  const note = $("#aiSubNote");
+  if (note) {
+    note.textContent = `Direct holding weight. Look-through warn cap is ${pct(data.ai_sleeve_cap_pct, 0)} (targets.json). SPY's sleeve fraction is not split into these rows.`;
+  }
+  const sub = $("#aiSubTable tbody");
+  if (sub) sub.innerHTML = renderSubthemeRows(data.ai_subthemes, true);
 }
 
 function renderWeightsChart(data) {
@@ -183,18 +190,35 @@ function renderWeightsChart(data) {
   });
 }
 
+function renderSubthemeRows(rows, withValue) {
+  return (rows || []).map((b) => {
+    const names = (b.tickers || []).map((t) => t.weight_pct != null ? `${t.ticker} ${pct(t.weight_pct)}` : t.ticker).join(", ") || "—";
+    const value = withValue ? `<td class="num">${money(b.market_value)}</td>` : `<td class="num">${b.count || 0}</td>`;
+    const weight = withValue ? `<td class="num">${pct(b.weight_pct)}</td>` : "";
+    return `<tr><td>${esc(b.label || b.id)}</td><td class="mono">${esc(names)}</td>${weight}${value}</tr>`;
+  }).join("");
+}
+
 /* ---------- watchlist ---------- */
 async function loadWatchlist() {
   const data = await api("/api/watchlist");
   state.watchlist = data.items || [];
+  const sub = $("#wlSubTable tbody");
+  if (sub) {
+    sub.innerHTML = (data.subthemes || []).map((b) => {
+      const names = (b.tickers || []).map((t) => t.ticker).join(", ") || "—";
+      return `<tr><td>${esc(b.label || b.id)}</td><td class="mono">${esc(names)}</td><td class="num">${b.count || 0}</td></tr>`;
+    }).join("");
+  }
   const tb = $("#wlTable tbody");
   tb.innerHTML = state.watchlist.map((it) => `
     <tr>
       <td class="mono"><strong>${esc(it.ticker)}</strong></td>
       <td>${esc(it.sector || "")}</td>
       <td>${esc(it.type || "")}</td>
+      <td class="muted">${esc(it.sub_theme || "")}</td>
       <td><button class="btn sm danger" data-rm="${esc(it.ticker)}">Remove</button></td>
-    </tr>`).join("") || `<tr><td colspan="4" class="muted">Empty watchlist</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="5" class="muted">Empty watchlist</td></tr>`;
 }
 
 $("#wlAdd").addEventListener("click", async () => {
@@ -207,6 +231,7 @@ $("#wlAdd").addEventListener("click", async () => {
         ticker: $("#wlTicker").value,
         sector: $("#wlSector").value || "Other",
         type: $("#wlType").value,
+        sub_theme: $("#wlSub").value,
       }),
     });
     $("#wlTicker").value = "";
