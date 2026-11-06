@@ -1,0 +1,157 @@
+/* Argus colour tokens v1 — generated from palette.json. Colour only; type/spacing/components = design system phase 2. */
+
+/* Usage: <html data-theme="dark"> (default) or data-theme="light"; add data-palette="cvd" for blue/orange gain-loss. */
+
+
+
+:root {
+  --argus-emerald-50: #ECFDF5;
+  --argus-emerald-100: #D1FAE5;
+  --argus-emerald-200: #A7F3D0;
+  --argus-emerald-300: #6EE7B7;
+  --argus-emerald-400: #34D399;
+  --argus-emerald-500: #10B981;
+  --argus-emerald-600: #059669;
+  --argus-emerald-700: #047857;
+  --argus-emerald-800: #065F46;
+  --argus-emerald-900: #064E3B;
+  --argus-slate-50: #F8FAFC;
+  --argus-slate-100: #F1F5F9;
+  --argus-slate-200: #E2E8F0;
+  --argus-slate-300: #CBD5E1;
+  --argus-slate-400: #94A3B8;
+  --argus-slate-500: #64748B;
+  --argus-slate-600: #475569;
+  --argus-slate-700: #334155;
+  --argus-slate-800: #1E293B;
+  --argus-slate-900: #0F172A;
+  --argus-slate-950: #0B0F17;
+  color-scheme: dark;
+}
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --argus-bg: #0B0F17;
+  --argus-surface: #121826;
+  --argus-surface-2: #1A2132;
+  --argus-surface-hover: #1E2638;
+  --argus-surface-selected: #0F2A22;
+  --argus-border: #263043;
+  --argus-border-strong: #334155;
+  --argus-text: #E2E8F0;
+  --argus-text-2: #94A3B8;
+  --argus-text-3: #7C8BA1;
+  --argus-text-disabled: #4B5568;
+  --argus-brand: #34D399;
+  --argus-brand-text: #34D399;
+  --argus-brand-solid: #34D399;
+  --argus-brand-solid-hover: #6EE7B7;
+  --argus-on-brand: #052E1F;
+  --argus-brand-subtle: #0F2A22;
+  --argus-focus-ring: #34D399;
+  --argus-gain: #A3E635;
+  --argus-gain-subtle: #1C2A0E;
+  --argus-loss: #F87171;
+  --argus-loss-subtle: #2A1316;
+  --argus-flat: #94A3B8;
+  --argus-warn: #FBBF24;
+  --argus-warn-subtle: #2A2110;
+  --argus-info: #38BDF8;
+  --argus-info-subtle: #0E2233;
+  --argus-danger: #F87171;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --argus-bg: #F8FAFC;
+  --argus-surface: #FFFFFF;
+  --argus-surface-2: #F1F5F9;
+  --argus-surface-hover: #F1F5F9;
+  --argus-surface-selected: #ECFDF5;
+  --argus-border: #E2E8F0;
+  --argus-border-strong: #CBD5E1;
+  --argus-text: #0F172A;
+  --argus-text-2: #475569;
+  --argus-text-3: #64748B;
+  --argus-text-disabled: #94A3B8;
+  --argus-brand: #059669;
+  --argus-brand-text: #047857;
+  --argus-brand-solid: #047857;
+  --argus-brand-solid-hover: #065F46;
+  --argus-on-brand: #FFFFFF;
+  --argus-brand-subtle: #ECFDF5;
+  --argus-focus-ring: #059669;
+  --argus-gain: #4D7C0F;
+  --argus-gain-subtle: #F7FEE7;
+  --argus-loss: #DC2626;
+  --argus-loss-subtle: #FEF2F2;
+  --argus-flat: #64748B;
+  --argus-warn: #B45309;
+  --argus-warn-subtle: #FFFBEB;
+  --argus-info: #0369A1;
+  --argus-info-subtle: #F0F9FF;
+  --argus-danger: #B91C1C;
+}
+
+[data-palette="cvd"],
+[data-theme="dark"][data-palette="cvd"] {
+  --argus-gain: #60A5FA;
+  --argus-gain-subtle: #0F1D33;
+  --argus-loss: #FB923C;
+  --argus-loss-subtle: #2B1A0E;
+}
+
+[data-theme="light"][data-palette="cvd"] {
+  --argus-gain: #2563EB;
+  --argus-gain-subtle: #EFF6FF;
+  --argus-loss: #C2410C;
+  --argus-loss-subtle: #FFF7ED;
+}
+
+/* Follow the OS when the app has not set a theme explicitly */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --argus-bg: #F8FAFC;
+    --argus-surface: #FFFFFF;
+    --argus-surface-2: #F1F5F9;
+    --argus-surface-hover: #F1F5F9;
+    --argus-surface-selected: #ECFDF5;
+    --argus-border: #E2E8F0;
+    --argus-border-strong: #CBD5E1;
+    --argus-text: #0F172A;
+    --argus-text-2: #475569;
+    --argus-text-3: #64748B;
+    --argus-text-disabled: #94A3B8;
+    --argus-brand: #059669;
+    --argus-brand-text: #047857;
+    --argus-brand-solid: #047857;
+    --argus-brand-solid-hover: #065F46;
+    --argus-on-brand: #FFFFFF;
+    --argus-brand-subtle: #ECFDF5;
+    --argus-focus-ring: #059669;
+    --argus-gain: #4D7C0F;
+    --argus-gain-subtle: #F7FEE7;
+    --argus-loss: #DC2626;
+    --argus-loss-subtle: #FEF2F2;
+    --argus-flat: #64748B;
+    --argus-warn: #B45309;
+    --argus-warn-subtle: #FFFBEB;
+    --argus-info: #0369A1;
+    --argus-info-subtle: #F0F9FF;
+    --argus-danger: #B91C1C;
+  }
+  :root:not([data-theme])[data-palette="cvd"] {
+    --argus-gain: #2563EB;
+    --argus-gain-subtle: #EFF6FF;
+    --argus-loss: #C2410C;
+    --argus-loss-subtle: #FFF7ED;
+  }
+}
+
+/* Minimal helpers (colour only) */
+.argus-gain { color: var(--argus-gain); }
+.argus-loss { color: var(--argus-loss); }
+.argus-flat { color: var(--argus-flat); }
+:focus-visible { outline: 2px solid var(--argus-focus-ring); outline-offset: 2px; }

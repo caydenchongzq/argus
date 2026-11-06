@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<style>.s{stroke:#059669}.d{fill:#0F172A}@media (prefers-color-scheme: dark){.s{stroke:#34D399}.d{fill:#F8FAFC}}</style>
+<polyline class="s" points="9,55 17.5,38 24.5,45 32,9 55,55" fill="none" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<circle class="d" cx="37" cy="42" r="5.5"/>
+</svg>

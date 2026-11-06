@@ -1,0 +1,43 @@
+{
+  "name": "Argus palette v1 (Chart A emerald)",
+  "version": "1.0.0",
+  "date": "2026-11-07",
+  "scales": {
+    "emerald": { "50": "#ECFDF5", "100": "#D1FAE5", "200": "#A7F3D0", "300": "#6EE7B7", "400": "#34D399", "500": "#10B981", "600": "#059669", "700": "#047857", "800": "#065F46", "900": "#064E3B" },
+    "slate":   { "50": "#F8FAFC", "100": "#F1F5F9", "200": "#E2E8F0", "300": "#CBD5E1", "400": "#94A3B8", "500": "#64748B", "600": "#475569", "700": "#334155", "800": "#1E293B", "900": "#0F172A", "950": "#0B0F17" }
+  },
+  "logo": {
+    "light": { "mark": "#059669", "eye": "#0F172A", "wordmark": "#0F172A" },
+    "dark":  { "mark": "#34D399", "eye": "#F8FAFC", "wordmark": "#E2E8F0" },
+    "appIconTile": "#0B0F17"
+  },
+  "themes": {
+    "light": {
+      "bg": "#F8FAFC", "surface": "#FFFFFF", "surface-2": "#F1F5F9", "surface-hover": "#F1F5F9", "surface-selected": "#ECFDF5",
+      "border": "#E2E8F0", "border-strong": "#CBD5E1",
+      "text": "#0F172A", "text-2": "#475569", "text-3": "#64748B", "text-disabled": "#94A3B8",
+      "brand": "#059669", "brand-text": "#047857", "brand-solid": "#047857", "brand-solid-hover": "#065F46", "on-brand": "#FFFFFF", "brand-subtle": "#ECFDF5",
+      "focus-ring": "#059669",
+      "gain": "#4D7C0F", "gain-subtle": "#F7FEE7", "loss": "#DC2626", "loss-subtle": "#FEF2F2", "flat": "#64748B",
+      "warn": "#B45309", "warn-subtle": "#FFFBEB", "info": "#0369A1", "info-subtle": "#F0F9FF", "danger": "#B91C1C"
+    },
+    "dark": {
+      "bg": "#0B0F17", "surface": "#121826", "surface-2": "#1A2132", "surface-hover": "#1E2638", "surface-selected": "#0F2A22",
+      "border": "#263043", "border-strong": "#334155",
+      "text": "#E2E8F0", "text-2": "#94A3B8", "text-3": "#7C8BA1", "text-disabled": "#4B5568",
+      "brand": "#34D399", "brand-text": "#34D399", "brand-solid": "#34D399", "brand-solid-hover": "#6EE7B7", "on-brand": "#052E1F", "brand-subtle": "#0F2A22",
+      "focus-ring": "#34D399",
+      "gain": "#A3E635", "gain-subtle": "#1C2A0E", "loss": "#F87171", "loss-subtle": "#2A1316", "flat": "#94A3B8",
+      "warn": "#FBBF24", "warn-subtle": "#2A2110", "info": "#38BDF8", "info-subtle": "#0E2233", "danger": "#F87171"
+    }
+  },
+  "cvdGainLoss": {
+    "note": "Opt-in colour-blind palette via [data-palette=\"cvd\"]: blue up / orange down (Okabe-Ito style).",
+    "light": { "gain": "#2563EB", "gain-subtle": "#EFF6FF", "loss": "#C2410C", "loss-subtle": "#FFF7ED" },
+    "dark":  { "gain": "#60A5FA", "gain-subtle": "#0F1D33", "loss": "#FB923C", "loss-subtle": "#2B1A0E" }
+  },
+  "contrastOnBg": {
+    "light (vs #FFFFFF)": { "brand #059669": 3.77, "brand-text #047857": 5.48, "gain #4D7C0F": 4.99, "loss #DC2626": 4.83, "warn #B45309": 5.02, "info #0369A1": 5.93, "text-3 #64748B": 4.76 },
+    "dark (vs #0B0F17)":  { "brand #34D399": 9.98, "gain #A3E635": 12.72, "loss #F87171": 6.93, "warn #FBBF24": 11.49, "info #38BDF8": 8.95, "text-2 #94A3B8": 7.48 }
+  }
+}
