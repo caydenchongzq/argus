@@ -378,20 +378,21 @@ dialog.ar-dialog::backdrop { background: var(--argus-backdrop); }
   font-family: var(--argus-font-mono); font-size: var(--argus-text-code); line-height: var(--argus-leading-code);
   color: var(--argus-text); background: var(--argus-surface-2); border: 1px solid var(--argus-border); border-radius: var(--argus-radius-md);
 }
-.ar-code .tok-key { color: var(--argus-chart-1); } .ar-code .tok-str { color: var(--argus-chart-3); } .ar-code .tok-num { color: var(--argus-chart-2); } .ar-code .tok-com { color: var(--argus-text-3); }
+.ar-code .tok-key { color: var(--argus-info); } .ar-code .tok-str { color: var(--argus-warn); } .ar-code .tok-num { color: var(--argus-accent); } .ar-code .tok-com { color: var(--argus-text-3); }
 .ar-log {
   margin: 0; max-height: var(--ar-log-max-h, 260px); overflow: auto; padding: var(--argus-space-2) 0;
   font-family: var(--argus-font-mono); font-size: var(--argus-text-code); line-height: var(--argus-leading-code);
-  background: var(--argus-slate-950); color: var(--argus-slate-200); border: 1px solid var(--argus-border); border-radius: var(--argus-radius-md);
+  background: var(--argus-log-bg); color: var(--argus-log-text); border: 1px solid var(--argus-log-border); border-radius: var(--argus-radius-md);
 }
 .ar-log__line { display: flex; gap: var(--argus-space-3); padding: 0 var(--argus-space-4); white-space: pre-wrap; }
-.ar-log__line:hover { background: rgb(255 255 255 / 0.04); }
-.ar-log__ts { color: var(--argus-slate-500); flex: none; }
-.ar-log__lvl { flex: none; width: 5ch; font-weight: 600; color: var(--argus-slate-400); }
-.ar-log__line--info  .ar-log__lvl { color: #38BDF8; }
-.ar-log__line--warn  .ar-log__lvl, .ar-log__line--warn  .ar-log__msg { color: #FBBF24; }
-.ar-log__line--error .ar-log__lvl, .ar-log__line--error .ar-log__msg { color: #F87171; }
-.ar-log__line--ok    .ar-log__lvl { color: #34D399; }
+.ar-log__line:hover { background: var(--argus-log-hover); }
+.ar-log__ts { color: var(--argus-log-ts); flex: none; }
+.ar-log__lvl { flex: none; width: 5ch; font-weight: 600; color: var(--argus-log-lvl); }
+.ar-log__line--info  .ar-log__lvl { color: var(--argus-log-info); }
+.ar-log__line--warn  .ar-log__lvl, .ar-log__line--warn  .ar-log__msg { color: var(--argus-log-warn); }
+.ar-log__line--error .ar-log__lvl, .ar-log__line--error .ar-log__msg { color: var(--argus-log-error); }
+.ar-log__line--ok    .ar-log__lvl { color: var(--argus-log-ok); }
+.ar-log .ar-gain { color: var(--argus-gain); } .ar-log .ar-loss { color: var(--argus-loss); }
 
 /* ---- Empty & loading states ---------------------------------------------- */
 .ar-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--argus-space-2); padding: var(--argus-space-10) var(--argus-space-6); color: var(--argus-text-2); }

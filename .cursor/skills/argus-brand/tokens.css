@@ -499,6 +499,17 @@
   --argus-backdrop: rgb(3 6 12 / 0.66);
   --argus-skeleton-a: #1A2132;
   --argus-skeleton-b: #263043;
+  /* Log / terminal panel */
+  --argus-log-bg: #0B0F17;
+  --argus-log-border: #263043;
+  --argus-log-text: #E2E8F0;
+  --argus-log-ts: #7C8BA1;
+  --argus-log-lvl: #94A3B8;
+  --argus-log-info: #38BDF8;
+  --argus-log-warn: #FBBF24;
+  --argus-log-error: #F87171;
+  --argus-log-ok: #34D399;
+  --argus-log-hover: rgb(255 255 255 / 0.04);
 }
 [data-theme="light"] {
   --argus-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
@@ -508,6 +519,17 @@
   --argus-backdrop: rgb(15 23 42 / 0.40);
   --argus-skeleton-a: #F1F5F9;
   --argus-skeleton-b: #E2E8F0;
+  /* Log / terminal panel */
+  --argus-log-bg: #F8FAFC;
+  --argus-log-border: #CBD5E1;
+  --argus-log-text: #0F172A;
+  --argus-log-ts: #5B6B82;
+  --argus-log-lvl: #475569;
+  --argus-log-info: #0369A1;
+  --argus-log-warn: #92400E;
+  --argus-log-error: #B91C1C;
+  --argus-log-ok: #047857;
+  --argus-log-hover: rgb(15 23 42 / 0.04);
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
@@ -518,6 +540,17 @@
     --argus-backdrop: rgb(15 23 42 / 0.40);
     --argus-skeleton-a: #F1F5F9;
     --argus-skeleton-b: #E2E8F0;
+    /* Log / terminal panel */
+    --argus-log-bg: #F8FAFC;
+    --argus-log-border: #CBD5E1;
+    --argus-log-text: #0F172A;
+    --argus-log-ts: #5B6B82;
+    --argus-log-lvl: #475569;
+    --argus-log-info: #0369A1;
+    --argus-log-warn: #92400E;
+    --argus-log-error: #B91C1C;
+    --argus-log-ok: #047857;
+    --argus-log-hover: rgb(15 23 42 / 0.04);
   }
 }
 
