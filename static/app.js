@@ -23,7 +23,10 @@ const state = {
   chart: null,
   bookTickers: [],
   pendingRun: null,
+  pendingAgentSave: false,
   token: null,
+  agentDoc: null,
+  agentUnlock: new Set(),
 };
 
 let closingFromConfirm = false;
@@ -244,6 +247,7 @@ async function setTab(name) {
     if (name === "fund") await loadFund();
     if (name === "themes") await loadThemes();
     if (name === "runs") await loadRuns();
+    if (name === "agents") await loadAgents();
   } catch (e) {
     showToast(e.message, "danger");
   }
@@ -759,7 +763,7 @@ $("#btnStartRun").addEventListener("click", () => {
 });
 
 function isPendingPaid() {
-  if (state.pendingRemove) return false;
+  if (state.pendingRemove || state.pendingAgentSave) return false;
   if (state.pendingTheme) return state.pendingTheme.mode === "weekly" && !!state.pendingTheme.include_llm;
   const b = state.pendingRun;
   if (!b) return false;
@@ -780,7 +784,11 @@ function openConfirm() {
   $("#confirmConsentWrap").classList.toggle("hidden", !paid);
   $("#confirmConsent").checked = false;
   $("#confirmGo").disabled = paid;
-  if (state.pendingRemove) {
+  if (state.pendingAgentSave) {
+    $("#confirmTitle").textContent = "Save agent config";
+    $("#confirmCaption").textContent = "Writes addons/agent_config.json. The next run reads it. No model is called.";
+    setConfirmButton("Save agents", "primary", "check");
+  } else if (state.pendingRemove) {
     $("#confirmTitle").textContent = "Remove from watchlist";
     $("#confirmCaption").textContent = "Writes data/watchlist.json after a backup.";
     setConfirmButton("Remove", "danger", "trash-2");
@@ -810,6 +818,7 @@ $("#confirmModal").addEventListener("close", () => {
   state.pendingRun = null;
   state.pendingTheme = null;
   state.pendingRemove = null;
+  state.pendingAgentSave = false;
 });
 $("#confirmConsent").addEventListener("change", (e) => {
   if (!$("#confirmConsentWrap").classList.contains("hidden")) $("#confirmGo").disabled = !e.target.checked;
@@ -817,11 +826,13 @@ $("#confirmConsent").addEventListener("change", (e) => {
 
 $("#confirmGo").addEventListener("click", async () => {
   const theme = state.pendingTheme ? { ...state.pendingTheme, confirm: true } : null;
-  const body = !theme && state.pendingRun ? { ...state.pendingRun, confirm: true } : null;
+  const saveAgents = state.pendingAgentSave;
+  const body = !theme && !saveAgents && state.pendingRun ? { ...state.pendingRun, confirm: true } : null;
   const remove = state.pendingRemove;
   state.pendingTheme = null;
   state.pendingRun = null;
   state.pendingRemove = null;
+  state.pendingAgentSave = false;
   closingFromConfirm = true;
   $("#confirmModal").close();
   closingFromConfirm = false;
@@ -829,6 +840,10 @@ $("#confirmGo").addEventListener("click", async () => {
     if (remove) {
       await api(`/api/watchlist/${encodeURIComponent(remove)}`, { method: "DELETE" });
       await loadWatchlist();
+      return;
+    }
+    if (saveAgents) {
+      await persistAgents();
       return;
     }
     if (theme) {
@@ -894,6 +909,385 @@ function queueThemeRun(mode) {
 
 $("#btnScreen").addEventListener("click", () => queueThemeRun("screen"));
 $("#btnScout").addEventListener("click", () => queueThemeRun("weekly"));
+
+/* ---------- agents ---------- */
+function moneyLevel(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return null;
+  const digits = Math.abs(v) >= 0.01 ? 2 : 4;
+  const body = v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return "$" + body;
+}
+
+function lineDiff(before, after) {
+  const a = String(before ?? "").split("\n");
+  const b = String(after ?? "").split("\n");
+  const n = a.length;
+  const m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const rows = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { rows.push([" ", a[i]]); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push(["−", a[i]]); i++; }
+    else { rows.push(["+", b[j]]); j++; }
+  }
+  while (i < n) rows.push(["−", a[i++]]);
+  while (j < m) rows.push(["+", b[j++]]);
+  return rows;
+}
+
+function fillDiff(pre, before, after) {
+  pre.replaceChildren();
+  if (String(before) === String(after)) {
+    const same = document.createElement("div");
+    same.textContent = "Same as the default role text.";
+    pre.appendChild(same);
+    return;
+  }
+  lineDiff(before, after).forEach(([mark, line]) => {
+    const row = document.createElement("div");
+    if (mark === "+") row.className = "ar-diff__add";
+    if (mark === "−") row.className = "ar-diff__del";
+    row.textContent = `${mark} ${line}`;
+    pre.appendChild(row);
+  });
+}
+
+function seatLocked(seat) {
+  return !!(seat.locked && !seat.unlocked && !state.agentUnlock.has(seat.id));
+}
+
+function currentModel(card) {
+  const custom = card.querySelector("[data-custom]").value.trim();
+  return custom || card.querySelector("[data-model]").value;
+}
+
+function seatCost(seat, modelId) {
+  const row = (state.agentDoc?.models || []).find((m) => m.id === modelId);
+  if (!row || seat.est_input_tokens == null || seat.est_output_tokens == null) return null;
+  if (row.usd_per_mtok_in == null || row.usd_per_mtok_out == null) return null;
+  return seat.est_input_tokens / 1e6 * row.usd_per_mtok_in + seat.est_output_tokens / 1e6 * row.usd_per_mtok_out;
+}
+
+function refreshAgentWarnings() {
+  const warnings = [];
+  $$(".ar-agent-card").forEach((card) => {
+    const id = card.dataset.seat;
+    const model = currentModel(card);
+    if (id !== "risk_conservative" && id !== "fm_conservative" && /opus/i.test(model)) {
+      warnings.push(`${id} uses ${model}. Opus stays locked to the conservative seats. This is a warning, not a block.`);
+    }
+  });
+  const box = $("#agentWarn");
+  box.classList.toggle("hidden", warnings.length === 0);
+  $("#agentWarnText").textContent = warnings.join(" ");
+}
+
+function renderSeat(seat) {
+  const card = document.createElement("section");
+  card.className = "ar-card ar-agent-card";
+  card.dataset.seat = seat.id;
+  const locked = seatLocked(seat);
+  const head = document.createElement("div");
+  head.className = "ar-card__header";
+  const title = document.createElement("h2");
+  title.className = "ar-card__title";
+  title.textContent = seat.label;
+  head.appendChild(title);
+  if (seat.locked) {
+    const badge = document.createElement("span");
+    badge.className = "ar-badge ar-badge--warn ar-agent-lock";
+    badge.innerHTML = `${iconSvg("lock", "ar-icon ar-icon--sm")}<span></span>`;
+    badge.querySelector("span").textContent = locked ? "Locked to Opus" : "Unlocked";
+    head.appendChild(badge);
+  }
+  card.appendChild(head);
+  const body = document.createElement("div");
+  body.className = "ar-card__body ar-stack";
+
+  const fields = document.createElement("div");
+  fields.className = "ar-agent-fields";
+
+  const modelField = document.createElement("div");
+  modelField.className = "ar-field";
+  const modelLabel = document.createElement("label");
+  modelLabel.className = "ar-label";
+  modelLabel.textContent = "Model";
+  const select = document.createElement("select");
+  select.className = "ar-select";
+  select.dataset.model = "1";
+  const known = new Set((state.agentDoc.models || []).map((m) => m.id));
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = "Custom id below";
+  select.appendChild(blank);
+  (state.agentDoc.models || []).forEach((m) => {
+    const opt = document.createElement("option");
+    opt.value = m.id;
+    opt.textContent = m.label ? `${m.label} (${m.id})` : m.id;
+    select.appendChild(opt);
+  });
+  select.value = known.has(seat.model) ? seat.model : "";
+  select.disabled = locked;
+  const custom = document.createElement("input");
+  custom.className = "ar-input";
+  custom.dataset.custom = "1";
+  custom.autocomplete = "off";
+  custom.spellcheck = false;
+  custom.id = `custom-${seat.id}`;
+  custom.placeholder = "openai/example-model";
+  custom.value = known.has(seat.model) ? "" : seat.model;
+  custom.disabled = locked;
+  const customLabel = document.createElement("label");
+  customLabel.className = "ar-label";
+  customLabel.htmlFor = custom.id;
+  customLabel.textContent = "Custom model id";
+  const modelHint = document.createElement("p");
+  modelHint.className = "ar-hint";
+  modelHint.textContent = locked
+    ? "Locked to anthropic/claude-opus-5.5. Unlock to change it."
+    : "The list is the curated set. A custom id is used when the text field is filled.";
+  modelLabel.htmlFor = `model-${seat.id}`;
+  select.id = `model-${seat.id}`;
+  modelField.append(modelLabel, select, customLabel, custom, modelHint);
+  fields.appendChild(modelField);
+
+  if (seat.supports_effort) {
+    const effortField = document.createElement("div");
+    effortField.className = "ar-field";
+    const effortLabel = document.createElement("label");
+    effortLabel.className = "ar-label";
+    effortLabel.textContent = "Reasoning effort";
+    effortLabel.htmlFor = `effort-${seat.id}`;
+    const effort = document.createElement("select");
+    effort.className = "ar-select";
+    effort.id = `effort-${seat.id}`;
+    effort.dataset.effort = "1";
+    [["", "Provider default"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]].forEach(([value, label]) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      effort.appendChild(opt);
+    });
+    effort.value = seat.effort || "";
+    effortField.append(effortLabel, effort);
+    fields.appendChild(effortField);
+  }
+
+  const numWrap = document.createElement("div");
+  numWrap.className = "ar-stack";
+  if (seat.supports_max_tokens) {
+    const field = document.createElement("div");
+    field.className = "ar-field";
+    const label = document.createElement("label");
+    label.className = "ar-label";
+    label.textContent = "Max tokens";
+    label.htmlFor = `tokens-${seat.id}`;
+    const input = document.createElement("input");
+    input.className = "ar-input ar-input--num";
+    input.id = `tokens-${seat.id}`;
+    input.dataset.tokens = "1";
+    input.inputMode = "numeric";
+    input.value = seat.max_tokens == null ? "" : String(seat.max_tokens);
+    input.placeholder = "Provider default";
+    field.append(label, input);
+    numWrap.appendChild(field);
+  }
+  if (seat.supports_temperature) {
+    const field = document.createElement("div");
+    field.className = "ar-field";
+    const label = document.createElement("label");
+    label.className = "ar-label";
+    label.textContent = "Temperature";
+    label.htmlFor = `temp-${seat.id}`;
+    const input = document.createElement("input");
+    input.className = "ar-input ar-input--num";
+    input.id = `temp-${seat.id}`;
+    input.dataset.temp = "1";
+    input.inputMode = "decimal";
+    input.value = seat.temperature == null ? "" : String(seat.temperature);
+    input.placeholder = "Not sent";
+    field.append(label, input);
+    numWrap.appendChild(field);
+  }
+  if (numWrap.childElementCount) fields.appendChild(numWrap);
+  body.appendChild(fields);
+
+  const cost = document.createElement("p");
+  cost.className = "ar-subtle ar-num";
+  cost.dataset.cost = "1";
+  const amount = seatCost(seat, seat.model);
+  if (amount == null) cost.hidden = true;
+  else cost.textContent = `Estimated this run ${moneyLevel(amount)}`;
+  body.appendChild(cost);
+
+  const promptField = document.createElement("div");
+  promptField.className = "ar-field";
+  const promptLabel = document.createElement("label");
+  promptLabel.className = "ar-label";
+  promptLabel.textContent = "Role prompt";
+  promptLabel.htmlFor = `prompt-${seat.id}`;
+  const area = document.createElement("textarea");
+  area.className = "ar-input ar-prompt";
+  area.id = `prompt-${seat.id}`;
+  area.dataset.prompt = "1";
+  area.rows = 8;
+  area.value = seat.system || "";
+  const hint = document.createElement("p");
+  hint.className = "ar-hint";
+  hint.textContent = "Ticker data, tool results, and the debate are added at run time. Reset restores the default role text.";
+  promptField.append(promptLabel, area, hint);
+  body.appendChild(promptField);
+
+  const diff = document.createElement("pre");
+  diff.className = "ar-code ar-diff hidden";
+  diff.dataset.diff = "1";
+  body.appendChild(diff);
+
+  const actions = document.createElement("div");
+  actions.className = "ar-row";
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.className = "ar-btn";
+  reset.innerHTML = `${iconSvg("refresh-cw")}<span class="ar-btn__label">Reset to default</span>`;
+  reset.addEventListener("click", () => {
+    area.value = seat.default_system || "";
+    if (!diff.classList.contains("hidden")) fillDiff(diff, seat.default_system || "", area.value);
+  });
+  const show = document.createElement("button");
+  show.type = "button";
+  show.className = "ar-btn ar-btn--ghost";
+  show.innerHTML = `${iconSvg("eye")}<span class="ar-btn__label">Show diff</span>`;
+  show.addEventListener("click", () => {
+    const open = diff.classList.contains("hidden");
+    diff.classList.toggle("hidden", !open);
+    show.querySelector(".ar-btn__label").textContent = open ? "Hide diff" : "Show diff";
+    if (open) fillDiff(diff, seat.default_system || "", area.value);
+  });
+  actions.append(reset, show);
+  if (seat.locked) {
+    const unlock = document.createElement("button");
+    unlock.type = "button";
+    unlock.className = "ar-btn";
+    unlock.innerHTML = `${iconSvg("lock")}<span class="ar-btn__label">${locked ? "Unlock" : "Lock again"}</span>`;
+    unlock.addEventListener("click", () => {
+      if (!locked) {
+        state.agentUnlock.delete(seat.id);
+        const fresh = state.agentDoc.seats.find((s) => s.id === seat.id);
+        if (fresh) {
+          fresh.unlocked = false;
+          fresh.model = state.agentDoc.locked_model;
+        }
+        renderAgents();
+        return;
+      }
+      state.pendingUnlock = seat.id;
+      $("#unlockText").textContent = `${seat.group}: ${seat.label} is locked to ${state.agentDoc.locked_model}. Unlocking lets you change the model. Save agents writes it. No model is called.`;
+      $("#unlockModal").showModal();
+    });
+    actions.appendChild(unlock);
+  }
+  body.appendChild(actions);
+  card.appendChild(body);
+
+  const onModel = () => {
+    const model = currentModel(card);
+    const amountNow = seatCost(seat, model);
+    cost.hidden = amountNow == null;
+    if (amountNow != null) cost.textContent = `Estimated this run ${moneyLevel(amountNow)}`;
+    refreshAgentWarnings();
+  };
+  select.addEventListener("change", () => {
+    if (select.value) custom.value = "";
+    onModel();
+  });
+  custom.addEventListener("input", onModel);
+  return card;
+}
+
+function renderAgents() {
+  const host = $("#agentSeats");
+  host.replaceChildren();
+  const doc = state.agentDoc;
+  if (!doc) return;
+  $("#agentPricing").textContent = doc.pricing_note || "";
+  let last = "";
+  (doc.seats || []).forEach((seat) => {
+    if (seat.group !== last) {
+      const h = document.createElement("h2");
+      h.className = "ar-h2";
+      h.textContent = seat.group;
+      host.appendChild(h);
+      last = seat.group;
+    }
+    host.appendChild(renderSeat(seat));
+  });
+  refreshAgentWarnings();
+}
+
+async function loadAgents() {
+  state.agentDoc = await api("/api/agents");
+  renderAgents();
+}
+
+function collectAgents() {
+  const seats = {};
+  const unlock = [];
+  $$(".ar-agent-card").forEach((card) => {
+    const id = card.dataset.seat;
+    const seat = (state.agentDoc.seats || []).find((s) => s.id === id) || {};
+    const tokens = card.querySelector("[data-tokens]");
+    const temp = card.querySelector("[data-temp]");
+    const effort = card.querySelector("[data-effort]");
+    const row = {
+      model: currentModel(card),
+      effort: effort ? (effort.value || null) : null,
+      temperature: temp && temp.value !== "" ? Number(temp.value) : null,
+      max_tokens: tokens && tokens.value !== "" ? Number(tokens.value) : null,
+      system: card.querySelector("[data-prompt]").value,
+    };
+    seats[id] = row;
+    if ((id === "risk_conservative" || id === "fm_conservative") && state.agentUnlock.has(id) && row.model !== state.agentDoc.locked_model) {
+      unlock.push(id);
+    }
+  });
+  return { seats, unlock };
+}
+
+async function persistAgents() {
+  const body = collectAgents();
+  state.agentDoc = await api("/api/agents", { method: "PUT", body: JSON.stringify(body) });
+  state.agentUnlock = new Set(
+    (state.agentDoc.seats || []).filter((s) => s.unlocked).map((s) => s.id),
+  );
+  renderAgents();
+  const warns = state.agentDoc.warnings || [];
+  showToast(warns.length ? `Saved. ${warns.length} Opus warning${warns.length === 1 ? "" : "s"}.` : "Agent config saved.", warns.length ? "warn" : "ok");
+}
+
+$("#btnSaveAgents").addEventListener("click", () => {
+  state.pendingRun = null;
+  state.pendingTheme = null;
+  state.pendingRemove = null;
+  state.pendingAgentSave = true;
+  $("#confirmText").textContent = "Save these models and role prompts? The next fund-manager, theme-scout, and per-ticker run reads them. Nothing is called now.";
+  openConfirm();
+});
+
+$("#unlockCancel").addEventListener("click", () => $("#unlockModal").close());
+$("#unlockGo").addEventListener("click", () => {
+  if (state.pendingUnlock) state.agentUnlock.add(state.pendingUnlock);
+  state.pendingUnlock = null;
+  $("#unlockModal").close();
+  renderAgents();
+});
 
 /* ---------- boot ---------- */
 (async function boot() {

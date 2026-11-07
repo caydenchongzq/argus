@@ -31,6 +31,7 @@
         <button type="button" class="ar-tab" data-tab="fund" role="tab" aria-selected="false">Fund Manager</button>
         <button type="button" class="ar-tab" data-tab="themes" role="tab" aria-selected="false">Themes</button>
         <button type="button" class="ar-tab" data-tab="runs" role="tab" aria-selected="false">Runs</button>
+        <button type="button" class="ar-tab" data-tab="agents" role="tab" aria-selected="false">Agents</button>
       </nav>
       <span class="ar-header__spacer"></span>
       <div class="ar-header__cluster">
@@ -364,6 +365,27 @@
           </section>
         </div>
       </section>
+      <section id="tab-agents" class="ar-page hidden" role="tabpanel">
+        <div class="ar-page-head">
+          <div>
+            <h1 class="ar-h1">Agents</h1>
+            <p class="ar-muted">Models and role prompts for the next run. Saved to <span class="ar-code-inline">addons/agent_config.json</span>. This page does not call a model.</p>
+          </div>
+          <button class="ar-btn ar-btn--primary" id="btnSaveAgents" type="button">
+            <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#save"/></svg>
+            <span class="ar-btn__label">Save agents</span>
+          </button>
+        </div>
+        <div class="ar-alert ar-alert--warn hidden" id="agentWarn" role="status">
+          <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#triangle-alert"/></svg>
+          <div>
+            <p class="ar-alert__title">Opus on another seat</p>
+            <div class="ar-alert__body" id="agentWarnText"></div>
+          </div>
+        </div>
+        <p class="ar-subtle" id="agentPricing"></p>
+        <div id="agentSeats" class="ar-stack"></div>
+      </section>
     </main>
     <footer class="ar-shell-foot">Local only · 127.0.0.1 · Decision support, not advice.</footer>
   </div>
@@ -394,6 +416,33 @@
         <button type="button" class="ar-btn ar-btn--primary" id="confirmGo">
           <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#play"/></svg>
           <span class="ar-btn__label">Start run</span>
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="ar-dialog" id="unlockModal" aria-labelledby="unlockTitle">
+    <div class="ar-dialog__header">
+      <div class="ar-dialog__icon">
+        <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#lock"/></svg>
+      </div>
+      <div>
+        <h3 class="ar-dialog__title" id="unlockTitle">Unlock the conservative seat</h3>
+        <p class="ar-caption">This does not save until you choose Save agents.</p>
+      </div>
+    </div>
+    <div class="ar-dialog__body">
+      <p id="unlockText">The risk conservative seat is locked to anthropic/claude-opus-5.5. Unlocking lets this page change that model for the next run. Other seats may use Opus, and Argus will warn instead of blocking.</p>
+    </div>
+    <div class="ar-dialog__actions">
+      <div class="ar-btn-group ar-btn-group--equal">
+        <button type="button" class="ar-btn ar-btn--ghost" id="unlockCancel">
+          <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#x"/></svg>
+          <span class="ar-btn__label">Cancel</span>
+        </button>
+        <button type="button" class="ar-btn ar-btn--primary" id="unlockGo">
+          <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#lock"/></svg>
+          <span class="ar-btn__label">Unlock</span>
         </button>
       </div>
     </div>

@@ -165,7 +165,34 @@
 .ar-prose p:last-child { margin-bottom: 0; }
 .ar-prose ul { margin: 0; padding-left: var(--argus-space-5); }
 
+.ar-agent-card .ar-agent-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.6fr);
+  gap: var(--argus-space-3);
+}
+.ar-prompt {
+  min-height: 8rem;
+  resize: vertical;
+  font-family: var(--argus-font-mono);
+  font-size: var(--argus-text-code);
+  line-height: var(--argus-leading-code);
+}
+.ar-diff {
+  margin: 0;
+  max-height: 16rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.ar-diff__add { background: var(--argus-gain-subtle); }
+.ar-diff__del { background: var(--argus-loss-subtle); }
+.ar-agent-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--argus-space-1);
+}
+
 @media (max-width: 1279px) {
+  .ar-agent-card .ar-agent-fields { grid-template-columns: 1fr; }
   .ar-header { height: auto; min-height: var(--argus-header-h); flex-wrap: wrap; padding-top: var(--argus-space-2); padding-bottom: var(--argus-space-2); }
   .ar-add-form { grid-template-columns: 1fr 1fr; }
 }

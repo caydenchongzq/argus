@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import secrets
 import shutil
 import subprocess
@@ -36,6 +37,10 @@ BOOK = DATA / "my_book.json"
 TARGETS = DATA / "targets.json"
 WATCHLIST = DATA / "watchlist.json"
 THEMES = TA_ROOT / "addons" / "fund_manager" / "themes.json"
+ADDONS = TA_ROOT / "addons"
+if str(ADDONS) not in sys.path:
+    sys.path.insert(0, str(ADDONS))
+import agent_config  # noqa: E402
 SUBTHEME_ORDER = (
     "ai_energy",
     "ai_memory_storage",
@@ -340,6 +345,19 @@ class ScoutRequest(BaseModel):
     confirm: bool = False
 
 
+class AgentSeatIn(BaseModel):
+    model: str
+    effort: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    system: str = ""
+
+
+class AgentConfigIn(BaseModel):
+    seats: dict[str, AgentSeatIn]
+    unlock: list[str] = Field(default_factory=list)
+
+
 class RunRequest(BaseModel):
     run_agents: bool = False
     no_llm: bool = False
@@ -383,6 +401,25 @@ def config():
 @app.get("/api/session")
 def session():
     return {"token": CONFIRM_TOKEN, "header": "X-Argus-Confirm"}
+
+
+@app.get("/api/agents")
+def agents_view():
+    try:
+        return agent_config.public_payload()
+    except agent_config.AgentConfigError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.put("/api/agents")
+def agents_save(body: AgentConfigIn, request: Request):
+    """Persist seat overrides. Requires the same confirm token as a run. No model call."""
+    _require_confirm_token(request)
+    payload = {"unlock": body.unlock, "seats": {k: v.model_dump() for k, v in body.seats.items()}}
+    try:
+        return agent_config.validate_and_save(payload)
+    except agent_config.AgentConfigError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 def _theme_file() -> dict:
