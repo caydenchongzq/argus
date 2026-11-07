@@ -493,6 +493,21 @@ def _subtheme_table(rows: list[dict], weight_key: str = "weight_pct") -> list[di
 # Portfolio
 # ---------------------------------------------------------------------------
 
+# Same set as fund_manager.KNOWN_ETFS. Any quote type "etf" also counts.
+_ETF_TICKERS = {
+    "SPY", "QQQ", "SMH", "IWM", "XLE", "XLF", "GLD", "XLV", "XLP", "XLU", "TLT", "DRAM", "DISK",
+}
+_CORE_ETF_WARN_PCT = 30.0
+_CORE_ETF_BREACH_PCT = 32.0
+
+
+def _sleeve(ticker: str, info: dict | None) -> str:
+    kind = str((info or {}).get("type") or "").strip().lower()
+    if kind == "etf" or str(ticker or "").strip().upper() in _ETF_TICKERS:
+        return "core_etf"
+    return "swing"
+
+
 @app.get("/api/portfolio")
 def portfolio():
     book = _read_json(BOOK)
@@ -537,6 +552,7 @@ def portfolio():
             "name": st.get("name"),
             "target_pct": (targets.get("weights_pct") or {}).get(t),
             "sub_theme": _subtheme_index().get(str(t).upper()),
+            "sleeve": _sleeve(t, st),
         })
 
     cash = float(book.get("cash") or 0)
@@ -559,6 +575,22 @@ def portfolio():
             book_newer = BOOK.stat().st_mtime > Path(stats_path).stat().st_mtime + 1
         except OSError:
             book_newer = False
+    sleeves = {
+        "core_etf": {"label": "Core ETF", "weight_pct": 0.0, "market_value": 0.0, "unrealized_pnl": 0.0},
+        "swing": {"label": "Swing", "weight_pct": 0.0, "market_value": 0.0, "unrealized_pnl": 0.0},
+    }
+    if total_mv:
+        for r in rows:
+            bucket = sleeves.get(r.get("sleeve") or "swing", sleeves["swing"])
+            bucket["market_value"] += r["market_value"] or 0
+            bucket["unrealized_pnl"] += r["unrealized_pnl"] or 0
+            bucket["weight_pct"] += r["weight_pct"] or 0
+        sleeves["swing"]["market_value"] += cash
+        sleeves["swing"]["weight_pct"] += cash_pct or 0
+        for bucket in sleeves.values():
+            bucket["weight_pct"] = round(bucket["weight_pct"], 1)
+            bucket["market_value"] = round(bucket["market_value"], 2)
+            bucket["unrealized_pnl"] = round(bucket["unrealized_pnl"], 2)
     unrealized = sum(r["unrealized_pnl"] or 0 for r in rows) if priced else None
     account_out = {
         "total_value": round(total_mv, 2) if total_mv is not None else None,
@@ -585,6 +617,9 @@ def portfolio():
         "book_newer_than_stats": book_newer,
         "ai_subthemes": _subtheme_table(rows),
         "ai_sleeve_cap_pct": float((targets.get("ai_sleeve") or {}).get("cap_pct") or 50),
+        "sleeves": sleeves,
+        "core_etf_warn_pct": _CORE_ETF_WARN_PCT,
+        "core_etf_breach_pct": _CORE_ETF_BREACH_PCT,
     }
 
 

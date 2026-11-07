@@ -344,7 +344,8 @@ async function loadPortfolio() {
     return `<tr class="${stale}">
       <td class="ar-ticker">${esc(p.ticker)}</td>
       <td class="ar-subtle">${esc(p.name || "")}</td>
-      <td class="ar-subtle">${esc(p.sub_theme ? (subLabel[p.sub_theme] || p.sub_theme) : "")}</td>
+      <td class="ar-subtle">${esc(p.sub_theme ? (subLabel[p.sub_theme] || p.sub_theme) : "—")}</td>
+      <td>${esc(p.sleeve === "core_etf" ? "Core ETF" : "Swing")}</td>
       <td class="ar-num">${qty(p.quantity)}</td>
       <td class="ar-num">${price(p.average_price)}</td>
       <td class="ar-num">${price(p.price)}</td>
@@ -354,6 +355,15 @@ async function loadPortfolio() {
       <td class="ar-num ar-subtle">${p.target_pct != null ? pctLevel(p.target_pct, 1) : "—"}</td>
     </tr>`;
   }).join("");
+
+  const sleeveNote = $("#pfSleeve");
+  if (sleeveNote) {
+    const core = (data.sleeves || {}).core_etf || {};
+    const swing = (data.sleeves || {}).swing || {};
+    const corePnl = moneyChange(core.unrealized_pnl);
+    const swingPnl = moneyChange(swing.unrealized_pnl);
+    sleeveNote.innerHTML = `Core ETF ${esc(pctLevel(core.weight_pct, 1))} · ${corePnl ? deltaHtml(corePnl) : "—"} · Swing ${esc(pctLevel(swing.weight_pct, 1))} · ${swingPnl ? deltaHtml(swingPnl) : "—"} · guide ${esc(pctLevel(data.core_etf_warn_pct, 0))} / rest`;
+  }
 
   renderWeightsChart(data);
   const note = $("#aiSubNote");
