@@ -408,8 +408,8 @@
                   <th scope="col">Agent</th>
                   <th scope="col">Model</th>
                   <th scope="col">Effort</th>
-                  <th scope="col" class="ar-num">Max tokens</th>
-                  <th scope="col" class="ar-num">Est. cost</th>
+                  <th scope="col" class="ar-num ar-col-extra">Max tokens</th>
+                  <th scope="col" class="ar-num ar-col-extra">Est. cost</th>
                   <th scope="col">Status</th>
                 </tr>
               </thead>
@@ -446,7 +446,7 @@
               </div>
               <pre class="ar-code ar-diff hidden" id="agentDiff" role="tabpanel" aria-labelledby="agentTabDiff"></pre>
             </div>
-            <p class="ar-hint" id="agentPromptHint">Ticker data and the debate are added at run time. Reset restores the default role text.</p>
+            <p class="ar-hint ar-agents__hint" id="agentPromptHint">Ticker data and the debate are added at run time. Reset restores the default role text.</p>
             <footer class="ar-agents__foot">
               <span class="ar-badge ar-badge--warn hidden" id="agentSeatDirty"><span class="ar-badge__dot"></span> Unsaved</span>
               <div class="ar-btn-group ar-btn-group--equal">
@@ -506,33 +506,6 @@
         <button type="button" class="ar-btn ar-btn--primary" id="confirmGo">
           <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#play"/></svg>
           <span class="ar-btn__label">Start run</span>
-        </button>
-      </div>
-    </div>
-  </dialog>
-
-  <dialog class="ar-dialog" id="unlockModal" aria-labelledby="unlockTitle">
-    <div class="ar-dialog__header">
-      <div class="ar-dialog__icon">
-        <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#lock"/></svg>
-      </div>
-      <div>
-        <h3 class="ar-dialog__title" id="unlockTitle">Unlock the conservative seat</h3>
-        <p class="ar-caption">This does not save until you choose Save or Save all.</p>
-      </div>
-    </div>
-    <div class="ar-dialog__body">
-      <p id="unlockText">The risk conservative seat is locked to anthropic/claude-opus-5.5. Unlocking lets this page change that model for the next run. Other seats may use Opus, and Argus will warn instead of blocking.</p>
-    </div>
-    <div class="ar-dialog__actions">
-      <div class="ar-btn-group ar-btn-group--equal">
-        <button type="button" class="ar-btn ar-btn--ghost" id="unlockCancel">
-          <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#x"/></svg>
-          <span class="ar-btn__label">Cancel</span>
-        </button>
-        <button type="button" class="ar-btn ar-btn--primary" id="unlockGo">
-          <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#lock"/></svg>
-          <span class="ar-btn__label">Unlock</span>
         </button>
       </div>
     </div>

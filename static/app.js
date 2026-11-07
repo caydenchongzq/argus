@@ -26,7 +26,6 @@ const state = {
   pendingAgentSave: false,
   token: null,
   agentDoc: null,
-  agentUnlock: new Set(),
   agentDraft: {},
   agentSelected: null,
   agentTab: "preview",
@@ -1015,13 +1014,8 @@ function draftFrom(seat) {
 
 function applyServer(doc) {
   state.agentDoc = doc;
-  state.agentUnlock = new Set((doc.seats || []).filter((s) => s.unlocked).map((s) => s.id));
   state.agentDraft = {};
   (doc.seats || []).forEach((seat) => { state.agentDraft[seat.id] = draftFrom(seat); });
-}
-
-function seatLocked(seat) {
-  return !!(seat.locked && !state.agentUnlock.has(seat.id));
 }
 
 function normEffort(value) {
@@ -1128,34 +1122,11 @@ function badge(cls, label, icon) {
 function fillStatus(cell, seat) {
   const wrap = document.createElement("div");
   wrap.className = "ar-agent-status";
-  if (seat.locked && seatLocked(seat)) {
-    wrap.append(badge("ar-badge--warn", "Locked", "lock"));
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "ar-btn ar-btn--sm ar-btn--ghost";
-    btn.dataset.unlock = seat.id;
-    btn.setAttribute("aria-label", "Unlock");
-    btn.dataset.tooltip = "Unlock";
-    btn.innerHTML = `${iconSvg("lock")}<span class="ar-btn__label">Unlock</span>`;
-    wrap.append(btn);
-  } else if (seat.locked) {
-    wrap.append(badge("ar-badge--neutral", "Unlocked"));
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "ar-btn ar-btn--sm ar-btn--ghost";
-    btn.dataset.lock = seat.id;
-    btn.setAttribute("aria-label", "Lock again");
-    btn.dataset.tooltip = "Lock again";
-    btn.innerHTML = `${iconSvg("lock")}<span class="ar-btn__label">Lock</span>`;
-    wrap.append(btn);
-  }
   if (opusWarn(seat)) wrap.append(badge("ar-badge--warn", "Opus", "triangle-alert"));
   if (isModified(seat)) {
     const mod = badge("ar-badge--info", "Modified");
     mod.prepend(Object.assign(document.createElement("span"), { className: "ar-badge__dot" }));
     wrap.append(mod);
-  } else if (!(seat.locked && seatLocked(seat))) {
-    wrap.append(badge("ar-badge--neutral", "Default"));
   } else {
     wrap.append(badge("ar-badge--neutral", "Default"));
   }
@@ -1183,7 +1154,6 @@ function modelOptions(select, seat) {
 
 function buildRow(seat) {
   const draft = state.agentDraft[seat.id];
-  const locked = seatLocked(seat);
   const tr = document.createElement("tr");
   tr.dataset.seat = seat.id;
   tr.tabIndex = -1;
@@ -1209,7 +1179,6 @@ function buildRow(seat) {
   select.className = "ar-select ar-select--sm";
   select.dataset.model = "1";
   select.setAttribute("aria-label", `Model for ${seat.label}`);
-  select.disabled = locked;
   modelOptions(select, seat);
   modelWrap.append(fam, select);
   model.append(modelWrap);
@@ -1228,7 +1197,7 @@ function buildRow(seat) {
     effortSelect.append(opt);
   });
   effortSelect.value = draft.effort || "";
-  effortSelect.disabled = locked || !seat.supports_effort;
+  effortSelect.disabled = !seat.supports_effort;
   if (!seat.supports_effort) {
     effortWrap.dataset.tooltip = "Effort is not sent";
     effortWrap.tabIndex = 0;
@@ -1237,7 +1206,7 @@ function buildRow(seat) {
   effort.append(effortWrap);
 
   const tokens = document.createElement("td");
-  tokens.className = "ar-num";
+  tokens.className = "ar-num ar-col-extra";
   const tokenInput = document.createElement("input");
   tokenInput.className = "ar-input ar-input--num ar-input--sm";
   tokenInput.dataset.tokens = "1";
@@ -1245,7 +1214,7 @@ function buildRow(seat) {
   tokenInput.setAttribute("aria-label", `Max tokens for ${seat.label}`);
   tokenInput.value = draft.max_tokens == null ? "" : String(draft.max_tokens);
   tokenInput.placeholder = "\u2014";
-  tokenInput.disabled = locked || !seat.supports_max_tokens;
+  tokenInput.disabled = !seat.supports_max_tokens;
   if (!seat.supports_max_tokens) {
     tokenInput.dataset.tooltip = "Max tokens are not sent";
     tokenInput.tabIndex = 0;
@@ -1253,7 +1222,7 @@ function buildRow(seat) {
   tokens.append(tokenInput);
 
   const cost = document.createElement("td");
-  cost.className = "ar-num ar-agent-cost";
+  cost.className = "ar-num ar-agent-cost ar-col-extra";
   cost.dataset.cost = "1";
   const amount = seatCost(seat, draft.model);
   cost.textContent = amount == null ? "\u2014" : moneyCost(amount);
@@ -1270,7 +1239,6 @@ function patchRow(id) {
   const tr = document.querySelector(`#agentTable tr[data-seat="${id}"]`);
   if (!seat || !tr) return;
   const draft = state.agentDraft[id];
-  const locked = seatLocked(seat);
   tr.toggleAttribute("aria-selected", state.agentSelected === id);
   if (state.agentSelected === id) tr.setAttribute("aria-selected", "true");
   else tr.removeAttribute("aria-selected");
@@ -1279,17 +1247,16 @@ function patchRow(id) {
   const select = tr.querySelector("[data-model]");
   if (select && document.activeElement !== select) {
     modelOptions(select, seat);
-    select.disabled = locked;
   }
   const effort = tr.querySelector("[data-effort]");
   if (effort && document.activeElement !== effort) {
     effort.value = draft.effort || "";
-    effort.disabled = locked || !seat.supports_effort;
+    effort.disabled = !seat.supports_effort;
   }
   const tokens = tr.querySelector("[data-tokens]");
   if (tokens && document.activeElement !== tokens) {
     tokens.value = draft.max_tokens == null ? "" : String(draft.max_tokens);
-    tokens.disabled = locked || !seat.supports_max_tokens;
+    tokens.disabled = !seat.supports_max_tokens;
   }
   const cost = tr.querySelector("[data-cost]");
   if (cost) {
@@ -1297,6 +1264,38 @@ function patchRow(id) {
     cost.textContent = amount == null ? "\u2014" : moneyCost(amount);
   }
   fillStatus(tr.querySelector("[data-status]"), seat);
+  syncPanelFields(id);
+}
+
+function syncPanelFields(id) {
+  if (state.agentSelected !== id || !$("#agentPanelTokens")) return;
+  const seat = seatById(id);
+  const draft = state.agentDraft[id];
+  if (!seat || !draft) return;
+  $$("[data-panel-effort]").forEach((btn) => {
+    btn.setAttribute("aria-pressed", String((btn.dataset.panelEffort || "") === (draft.effort || "")));
+    btn.disabled = !seat.supports_effort;
+  });
+  const tokens = $("#agentPanelTokens");
+  if (tokens && document.activeElement !== tokens) {
+    tokens.value = draft.max_tokens == null ? "" : String(draft.max_tokens);
+    tokens.disabled = !seat.supports_max_tokens;
+  }
+  const custom = $("#agentCustomModel");
+  if (custom && document.activeElement !== custom) {
+    const known = new Set((state.agentDoc.models || []).map((m) => m.id));
+    custom.value = known.has(draft.model) ? "" : draft.model;
+  }
+  const temp = $("#agentPanelTemp");
+  if (temp && document.activeElement !== temp) {
+    temp.value = draft.temperature == null ? "" : String(draft.temperature);
+  }
+  const cost = $("#agentPanelCost");
+  if (cost) {
+    const amount = seatCost(seat, draft.model);
+    cost.value = amount == null ? "\u2014" : moneyCost(amount);
+  }
+  refreshPanelChrome();
 }
 
 function renderEmpty(title, text, retry) {
@@ -1401,15 +1400,15 @@ function buildPanelMeta(seat) {
   const host = $("#agentPanelMeta");
   host.replaceChildren();
   const draft = state.agentDraft[seat.id];
-  const locked = seatLocked(seat);
 
   const effortField = document.createElement("div");
   effortField.className = "ar-field";
   const effortLabel = document.createElement("span");
   effortLabel.className = "ar-label";
   effortLabel.textContent = "Reasoning effort";
+  effortField.classList.add("ar-agents__span-2");
   const seg = document.createElement("div");
-  seg.className = "ar-segmented";
+  seg.className = "ar-segmented ar-agents__effort";
   seg.setAttribute("role", "group");
   seg.setAttribute("aria-label", "Reasoning effort");
   if (!seat.supports_effort) {
@@ -1422,7 +1421,7 @@ function buildPanelMeta(seat) {
     btn.textContent = label;
     btn.dataset.panelEffort = value;
     btn.setAttribute("aria-pressed", String((draft.effort || "") === value));
-    btn.disabled = locked || !seat.supports_effort;
+    btn.disabled = !seat.supports_effort;
     btn.addEventListener("click", () => {
       state.agentDraft[seat.id].effort = value;
       $$("[data-panel-effort]", seg).forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
@@ -1444,7 +1443,7 @@ function buildPanelMeta(seat) {
   tokenInput.id = "agentPanelTokens";
   tokenInput.inputMode = "numeric";
   tokenInput.value = draft.max_tokens == null ? "" : String(draft.max_tokens);
-  tokenInput.disabled = locked || !seat.supports_max_tokens;
+  tokenInput.disabled = !seat.supports_max_tokens;
   tokenInput.addEventListener("input", () => {
     const parsed = parseTokens(tokenInput.value);
     tokenInput.setAttribute("aria-invalid", parsed.ok ? "false" : "true");
@@ -1467,7 +1466,6 @@ function buildPanelMeta(seat) {
   custom.autocomplete = "off";
   custom.spellcheck = false;
   custom.placeholder = "provider/model";
-  custom.disabled = locked;
   const known = new Set((state.agentDoc.models || []).map((m) => m.id));
   custom.value = known.has(draft.model) ? "" : draft.model;
   custom.addEventListener("input", () => {
@@ -1481,7 +1479,24 @@ function buildPanelMeta(seat) {
   });
   customField.append(customLabel, custom);
 
-  host.append(effortField, tokenField, customField);
+  const costField = document.createElement("div");
+  costField.className = "ar-field";
+  const costLabel = document.createElement("label");
+  costLabel.className = "ar-label";
+  costLabel.htmlFor = "agentPanelCost";
+  costLabel.textContent = "Est. cost";
+  const costInput = document.createElement("input");
+  costInput.className = "ar-input ar-input--mono";
+  costInput.id = "agentPanelCost";
+  costInput.readOnly = true;
+  costInput.tabIndex = -1;
+  const amount = seatCost(seat, draft.model);
+  costInput.value = amount == null ? "\u2014" : moneyCost(amount);
+  costField.append(costLabel, costInput);
+
+  host.append(effortField, tokenField);
+  if (!seat.supports_temperature) customField.classList.add("ar-agents__span-2");
+  host.append(customField);
   if (seat.supports_temperature) {
     const tempField = document.createElement("div");
     tempField.className = "ar-field";
@@ -1495,7 +1510,6 @@ function buildPanelMeta(seat) {
     temp.inputMode = "decimal";
     temp.placeholder = "Not sent";
     temp.value = draft.temperature == null ? "" : String(draft.temperature);
-    temp.disabled = locked;
     temp.addEventListener("input", () => {
       const parsed = parseTemp(temp.value);
       temp.setAttribute("aria-invalid", parsed.ok ? "false" : "true");
@@ -1507,6 +1521,7 @@ function buildPanelMeta(seat) {
     tempField.append(tempLabel, temp);
     host.append(tempField);
   }
+  host.append(costField);
 }
 
 function parseTokens(value) {
@@ -1535,12 +1550,9 @@ function refreshPanelChrome() {
   const chip = $("#agentPanelChip");
   chip.textContent = `${familyOf(draft.model)} \u00b7 ${draft.model}`;
   const note = $("#agentLockNote");
-  if (seat.locked && seatLocked(seat)) {
+  if (opusWarn(seat)) {
     note.classList.remove("hidden");
-    note.textContent = `Locked to ${state.agentDoc.locked_model}. Unlock to change the model. Opus on any other seat warns and does not block.`;
-  } else if (opusWarn(seat)) {
-    note.classList.remove("hidden");
-    note.textContent = `${seat.label} uses ${draft.model}. Opus stays locked to the conservative seats. This is a warning, not a block.`;
+    note.textContent = `${seat.label} uses ${draft.model}. Opus on this seat is allowed and is not blocked.`;
   } else {
     note.classList.add("hidden");
     note.textContent = "";
@@ -1601,8 +1613,6 @@ function revertSeat(id) {
   const seat = seatById(id);
   if (!seat) return;
   state.agentDraft[id] = draftFrom(seat);
-  if (seat.unlocked) state.agentUnlock.add(id);
-  else state.agentUnlock.delete(id);
 }
 
 function revertAll() {
@@ -1628,7 +1638,7 @@ function refreshAgentWarnings() {
   (state.agentDoc?.seats || []).forEach((seat) => {
     const model = state.agentDraft[seat.id]?.model || "";
     if (opusWarn(seat)) {
-      warnings.push(`${seat.label} uses ${model}. Opus stays locked to the conservative seats. This is a warning, not a block.`);
+      warnings.push(`${seat.label} uses ${model}. Opus on this seat is allowed and is not blocked.`);
     }
   });
   $("#agentWarn").classList.toggle("hidden", warnings.length === 0);
@@ -1670,8 +1680,6 @@ async function loadAgents() {
 
 function collectAgents() {
   const seats = {};
-  const unlock = [];
-  const lockedModel = state.agentDoc.locked_model;
   (state.agentDoc.seats || []).forEach((seat) => {
     const draft = state.agentDraft[seat.id];
     const model = (draft.model || "").trim() || seat.default_model;
@@ -1682,12 +1690,8 @@ function collectAgents() {
       max_tokens: draft.max_tokens,
       system: draft.system || "",
     };
-    if ((seat.id === "risk_conservative" || seat.id === "fm_conservative")
-      && state.agentUnlock.has(seat.id) && model !== lockedModel) {
-      unlock.push(seat.id);
-    }
   });
-  return { seats, unlock };
+  return { seats, unlock: [] };
 }
 
 async function persistAgents() {
@@ -1708,29 +1712,7 @@ function requestSave() {
   openConfirm();
 }
 
-function openUnlock(id) {
-  const seat = seatById(id);
-  if (!seat) return;
-  state.pendingUnlock = id;
-  $("#unlockText").textContent = `${stageOf(id).label}: ${seat.label} is locked to ${state.agentDoc.locked_model}. Unlocking lets you change the model. Save writes it. No model is called.`;
-  $("#unlockModal").showModal();
-}
-
 $("#agentTable").addEventListener("click", (e) => {
-  const unlock = e.target.closest("[data-unlock]");
-  if (unlock) {
-    openUnlock(unlock.dataset.unlock);
-    return;
-  }
-  const lock = e.target.closest("[data-lock]");
-  if (lock) {
-    const id = lock.dataset.lock;
-    state.agentUnlock.delete(id);
-    if (state.agentDraft[id]) state.agentDraft[id].model = state.agentDoc.locked_model;
-    renderAgents();
-    if (state.agentSelected === id) buildPanelMeta(seatById(id));
-    return;
-  }
   if (e.target.closest("input, select, button, textarea, a, label")) return;
   const tr = e.target.closest("tr[data-seat]");
   if (tr) selectAgent(tr.dataset.seat);
@@ -1741,17 +1723,8 @@ $("#agentTable").addEventListener("change", (e) => {
   if (!tr) return;
   const draft = state.agentDraft[tr.dataset.seat];
   if (!draft) return;
-  if (e.target.matches("[data-model]")) {
-    draft.model = e.target.value;
-    if (state.agentSelected === tr.dataset.seat) {
-      buildPanelMeta(seatById(tr.dataset.seat));
-      refreshPanelChrome();
-    }
-  }
-  if (e.target.matches("[data-effort]")) {
-    draft.effort = e.target.value;
-    if (state.agentSelected === tr.dataset.seat) buildPanelMeta(seatById(tr.dataset.seat));
-  }
+  if (e.target.matches("[data-model]")) draft.model = e.target.value;
+  if (e.target.matches("[data-effort]")) draft.effort = e.target.value;
   patchRow(tr.dataset.seat);
   refreshAgentWarnings();
   syncBar();
@@ -1766,12 +1739,6 @@ $("#agentTable").addEventListener("input", (e) => {
   e.target.setAttribute("aria-invalid", parsed.ok ? "false" : "true");
   if (!parsed.ok) return;
   state.agentDraft[seat.id].max_tokens = parsed.value == null ? seat.default_max_tokens : parsed.value;
-  if (state.agentSelected === seat.id) {
-    const panelTokens = $("#agentPanelTokens");
-    if (panelTokens && document.activeElement !== panelTokens) {
-      panelTokens.value = state.agentDraft[seat.id].max_tokens == null ? "" : String(state.agentDraft[seat.id].max_tokens);
-    }
-  }
   patchRow(seat.id);
   syncBar();
 });
@@ -1855,6 +1822,7 @@ $("#agentResize").addEventListener("pointerdown", (e) => {
     const rect = body.getBoundingClientRect();
     const pct = Math.min(56, Math.max(28, ((rect.right - ev.clientX) / rect.width) * 100));
     panel.style.width = `${pct}%`;
+    panel.style.flexBasis = `${pct}%`;
   };
   const up = () => {
     window.removeEventListener("pointermove", move);
@@ -1883,20 +1851,6 @@ document.addEventListener("keydown", (e) => {
   else index = index < 0 ? ids.length - 1 : Math.max(0, index - 1);
   selectAgent(ids[index]);
 });
-
-$("#unlockCancel").addEventListener("click", () => $("#unlockModal").close());
-$("#unlockGo").addEventListener("click", () => {
-  if (state.pendingUnlock) state.agentUnlock.add(state.pendingUnlock);
-  const id = state.pendingUnlock;
-  state.pendingUnlock = null;
-  $("#unlockModal").close();
-  renderAgents();
-  if (id && state.agentSelected === id) {
-    buildPanelMeta(seatById(id));
-    refreshPanel({ forceText: true });
-  }
-});
-
 
 /* ---------- boot ---------- */
 (async function boot() {
