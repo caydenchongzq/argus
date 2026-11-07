@@ -365,16 +365,26 @@
           </section>
         </div>
       </section>
-      <section id="tab-agents" class="ar-page hidden" role="tabpanel">
+      <section id="tab-agents" class="ar-page ar-agents hidden" role="tabpanel">
         <div class="ar-page-head">
           <div>
             <h1 class="ar-h1">Agents</h1>
             <p class="ar-muted">Models and role prompts for the next run. Saved to <span class="ar-code-inline">addons/agent_config.json</span>. This page does not call a model.</p>
           </div>
-          <button class="ar-btn ar-btn--primary" id="btnSaveAgents" type="button">
-            <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#save"/></svg>
-            <span class="ar-btn__label">Save agents</span>
-          </button>
+        </div>
+        <div class="ar-agents__toolbar">
+          <label class="ar-field ar-agents__search">
+            <span class="ar-label">Search</span>
+            <span class="ar-input-group">
+              <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#search"/></svg>
+              <input class="ar-input" id="agentSearch" type="search" placeholder="Name, role, or model" autocomplete="off" />
+            </span>
+          </label>
+          <label class="ar-switch">
+            <input type="checkbox" id="agentModifiedOnly" role="switch" />
+            <span>Show modified only</span>
+          </label>
+          <p class="ar-subtle ar-agents__note" id="agentPricing"></p>
         </div>
         <div class="ar-alert ar-alert--warn hidden" id="agentWarn" role="status">
           <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#triangle-alert"/></svg>
@@ -383,8 +393,88 @@
             <div class="ar-alert__body" id="agentWarnText"></div>
           </div>
         </div>
-        <p class="ar-subtle" id="agentPricing"></p>
-        <div id="agentSeats" class="ar-stack"></div>
+        <div class="ar-alert ar-alert--danger hidden" id="agentError" role="alert">
+          <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#circle-x"/></svg>
+          <div>
+            <p class="ar-alert__title">Agents did not load</p>
+            <div class="ar-alert__body" id="agentErrorText"></div>
+          </div>
+        </div>
+        <div class="ar-agents__body">
+          <div class="ar-table-wrap ar-agents__table" id="agentTableWrap" tabindex="0">
+            <table class="ar-table">
+              <thead>
+                <tr>
+                  <th scope="col">Agent</th>
+                  <th scope="col">Model</th>
+                  <th scope="col">Effort</th>
+                  <th scope="col" class="ar-num">Max tokens</th>
+                  <th scope="col" class="ar-num">Est. cost</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody id="agentTable"></tbody>
+            </table>
+          </div>
+          <button type="button" class="ar-agents__backdrop" id="agentBackdrop" aria-label="Close agent panel" tabindex="-1"></button>
+          <aside class="ar-agents__panel hidden" id="agentPanel" aria-hidden="true" aria-labelledby="agentPanelName">
+            <div class="ar-agents__resize" id="agentResize" role="separator" aria-orientation="vertical" aria-label="Resize panel" tabindex="0"></div>
+            <header class="ar-agents__panel-head">
+              <div class="ar-agents__panel-title">
+                <h2 class="ar-h3" id="agentPanelName">Agent</h2>
+                <p class="ar-subtle" id="agentPanelStage"></p>
+              </div>
+              <span class="ar-badge ar-badge--neutral" id="agentPanelChip"></span>
+              <button type="button" class="ar-btn ar-btn--sm ar-btn--ghost" id="agentPanelClose" aria-label="Close" data-tooltip="Close">
+                <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#x"/></svg>
+                <span class="ar-btn__label">Close</span>
+              </button>
+            </header>
+            <p class="ar-hint ar-agents__locknote hidden" id="agentLockNote"></p>
+            <div class="ar-agents__meta" id="agentPanelMeta"></div>
+            <div class="ar-tabs ar-tabs--inline" role="tablist" aria-label="Role prompt">
+              <button type="button" class="ar-tab" id="agentTabPreview" data-agent-tab="preview" role="tab" aria-selected="true" aria-controls="agentPreview">Preview</button>
+              <button type="button" class="ar-tab" id="agentTabEdit" data-agent-tab="edit" role="tab" aria-selected="false" aria-controls="agentEdit">Edit</button>
+              <button type="button" class="ar-tab" id="agentTabDiff" data-agent-tab="diff" role="tab" aria-selected="false" aria-controls="agentDiff">Diff vs default</button>
+            </div>
+            <div class="ar-agents__panel-body">
+              <div class="ar-prose" id="agentPreview" role="tabpanel" aria-labelledby="agentTabPreview"></div>
+              <div class="ar-agents__editor hidden" id="agentEdit" role="tabpanel" aria-labelledby="agentTabEdit">
+                <pre class="ar-agents__lines" id="agentLines" aria-hidden="true">1</pre>
+                <label class="ar-sr-only" for="agentPrompt">Role prompt</label>
+                <textarea id="agentPrompt" spellcheck="false" aria-describedby="agentPromptHint"></textarea>
+              </div>
+              <pre class="ar-code ar-diff hidden" id="agentDiff" role="tabpanel" aria-labelledby="agentTabDiff"></pre>
+            </div>
+            <p class="ar-hint" id="agentPromptHint">Ticker data and the debate are added at run time. Reset restores the default role text.</p>
+            <footer class="ar-agents__foot">
+              <span class="ar-badge ar-badge--warn hidden" id="agentSeatDirty"><span class="ar-badge__dot"></span> Unsaved</span>
+              <div class="ar-btn-group ar-btn-group--equal">
+                <button type="button" class="ar-btn" id="agentReset">
+                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#refresh-cw"/></svg>
+                  <span class="ar-btn__label">Reset to default</span>
+                </button>
+                <button type="button" class="ar-btn ar-btn--primary" id="agentSave">
+                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#check"/></svg>
+                  <span class="ar-btn__label">Save</span>
+                </button>
+              </div>
+            </footer>
+          </aside>
+        </div>
+        <div class="ar-agents__bar">
+          <p class="ar-agents__count" id="agentDirtyCount">No unsaved changes</p>
+          <div class="ar-btn-group ar-btn-group--equal">
+            <button type="button" class="ar-btn ar-btn--ghost" id="agentDiscard" disabled>
+              <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#x"/></svg>
+              <span class="ar-btn__label">Discard</span>
+            </button>
+            <button type="button" class="ar-btn ar-btn--primary" id="agentSaveAll" disabled>
+              <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#save"/></svg>
+              <span class="ar-btn__label">Save all</span>
+            </button>
+          </div>
+        </div>
       </section>
     </main>
     <footer class="ar-shell-foot">Local only · 127.0.0.1 · Decision support, not advice.</footer>
@@ -428,7 +518,7 @@
       </div>
       <div>
         <h3 class="ar-dialog__title" id="unlockTitle">Unlock the conservative seat</h3>
-        <p class="ar-caption">This does not save until you choose Save agents.</p>
+        <p class="ar-caption">This does not save until you choose Save or Save all.</p>
       </div>
     </div>
     <div class="ar-dialog__body">
@@ -443,6 +533,33 @@
         <button type="button" class="ar-btn ar-btn--primary" id="unlockGo">
           <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#lock"/></svg>
           <span class="ar-btn__label">Unlock</span>
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="ar-dialog" id="agentCloseModal" aria-labelledby="agentCloseTitle">
+    <div class="ar-dialog__header">
+      <div class="ar-dialog__icon">
+        <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#triangle-alert"/></svg>
+      </div>
+      <div>
+        <h3 class="ar-dialog__title" id="agentCloseTitle">Discard unsaved edits?</h3>
+        <p class="ar-caption">Nothing is written until you save.</p>
+      </div>
+    </div>
+    <div class="ar-dialog__body">
+      <p id="agentCloseText"></p>
+    </div>
+    <div class="ar-dialog__actions">
+      <div class="ar-btn-group ar-btn-group--equal">
+        <button type="button" class="ar-btn ar-btn--ghost" id="agentCloseKeep">
+          <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#x"/></svg>
+          <span class="ar-btn__label">Keep</span>
+        </button>
+        <button type="button" class="ar-btn ar-btn--danger" id="agentCloseDiscard">
+          <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#trash-2"/></svg>
+          <span class="ar-btn__label">Discard</span>
         </button>
       </div>
     </div>

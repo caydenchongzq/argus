@@ -27,6 +27,14 @@ const state = {
   token: null,
   agentDoc: null,
   agentUnlock: new Set(),
+  agentDraft: {},
+  agentSelected: null,
+  agentTab: "preview",
+  agentQuery: "",
+  agentModifiedOnly: false,
+  agentLoading: false,
+  agentError: "",
+  agentCloseMode: null,
 };
 
 let closingFromConfirm = false;
@@ -911,6 +919,37 @@ $("#btnScreen").addEventListener("click", () => queueThemeRun("screen"));
 $("#btnScout").addEventListener("click", () => queueThemeRun("weekly"));
 
 /* ---------- agents ---------- */
+const AGENT_STAGES = [
+  { id: "macro", label: "Macro", seats: ["theme_scout"] },
+  { id: "analysts", label: "Analysts", seats: ["market", "sentiment", "news", "fundamentals"] },
+  { id: "research", label: "Research", seats: ["bull", "bear", "research_manager"] },
+  { id: "trader", label: "Trader", seats: ["trader"] },
+  { id: "risk", label: "Per-ticker risk", seats: ["risk_aggressive", "risk_conservative", "risk_neutral"] },
+  { id: "fund", label: "Fund manager & portfolio risk", seats: ["fm_manager", "fm_aggressive", "fm_conservative", "fm_neutral", "portfolio_manager"] },
+  { id: "memory", label: "Memory", seats: ["memory"] },
+];
+const AGENT_ROLES = {
+  theme_scout: "Weekly themes and watchlist ideas",
+  market: "Price action and technicals",
+  sentiment: "Social, insider, and mood signals",
+  news: "Headlines and catalysts",
+  fundamentals: "Financials and valuation",
+  bull: "Case for the long",
+  bear: "Case against the trade",
+  research_manager: "Judges the bull and bear debate",
+  trader: "Turns the verdict into an order",
+  risk_aggressive: "Per-ticker case for taking the trade",
+  risk_conservative: "Per-ticker case for staying strict",
+  risk_neutral: "Per-ticker case between the two",
+  portfolio_manager: "Final per-ticker decision",
+  memory: "Lesson written after the run",
+  fm_manager: "Portfolio draft and final plan",
+  fm_aggressive: "Fund debate: push for more risk",
+  fm_conservative: "Fund debate: defend the limits",
+  fm_neutral: "Fund debate: the middle view",
+};
+const AGENT_EFFORTS = [["", "Default"], ["low", "Low"], ["medium", "Med"], ["high", "High"]];
+
 function moneyLevel(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return null;
@@ -960,13 +999,78 @@ function fillDiff(pre, before, after) {
   });
 }
 
-function seatLocked(seat) {
-  return !!(seat.locked && !seat.unlocked && !state.agentUnlock.has(seat.id));
+function seatById(id) {
+  return (state.agentDoc?.seats || []).find((s) => s.id === id) || null;
 }
 
-function currentModel(card) {
-  const custom = card.querySelector("[data-custom]").value.trim();
-  return custom || card.querySelector("[data-model]").value;
+function draftFrom(seat) {
+  return {
+    model: seat.model || "",
+    effort: seat.effort || "",
+    temperature: seat.temperature ?? null,
+    max_tokens: seat.max_tokens ?? null,
+    system: seat.system || "",
+  };
+}
+
+function applyServer(doc) {
+  state.agentDoc = doc;
+  state.agentUnlock = new Set((doc.seats || []).filter((s) => s.unlocked).map((s) => s.id));
+  state.agentDraft = {};
+  (doc.seats || []).forEach((seat) => { state.agentDraft[seat.id] = draftFrom(seat); });
+}
+
+function seatLocked(seat) {
+  return !!(seat.locked && !state.agentUnlock.has(seat.id));
+}
+
+function normEffort(value) {
+  return value || null;
+}
+
+function seatDirty(seat) {
+  const draft = state.agentDraft[seat.id];
+  if (!draft) return false;
+  return (draft.model || "") !== (seat.model || "")
+    || normEffort(draft.effort) !== normEffort(seat.effort)
+    || (draft.max_tokens ?? null) !== (seat.max_tokens ?? null)
+    || (draft.temperature ?? null) !== (seat.temperature ?? null)
+    || (draft.system || "") !== (seat.system || "");
+}
+
+function isModified(seat) {
+  const draft = state.agentDraft[seat.id];
+  if (!draft) return !!seat.customized;
+  return (draft.model || "") !== (seat.default_model || "")
+    || normEffort(draft.effort) !== normEffort(seat.default_effort)
+    || (draft.max_tokens ?? null) !== (seat.default_max_tokens ?? null)
+    || (draft.system || "") !== (seat.default_system || "")
+    || (seat.supports_temperature && draft.temperature != null);
+}
+
+function unsavedIds() {
+  return (state.agentDoc?.seats || []).filter(seatDirty).map((s) => s.id);
+}
+
+function stageOf(id) {
+  return AGENT_STAGES.find((stage) => stage.seats.includes(id)) || { id: "other", label: "Other" };
+}
+
+function familyOf(model) {
+  const prefix = String(model || "").split("/")[0].toLowerCase();
+  const names = {
+    openai: "OpenAI", anthropic: "Anthropic", google: "Google",
+    "meta-llama": "Meta", mistralai: "Mistral", "x-ai": "xAI",
+  };
+  if (!prefix) return "Model";
+  return names[prefix] || prefix.charAt(0).toUpperCase() + prefix.slice(1);
+}
+
+function moneyCost(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "\u2014";
+  const digits = Math.abs(v) < 1 ? 4 : 2;
+  return "$" + v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 function seatCost(seat, modelId) {
@@ -976,318 +1080,823 @@ function seatCost(seat, modelId) {
   return seat.est_input_tokens / 1e6 * row.usd_per_mtok_in + seat.est_output_tokens / 1e6 * row.usd_per_mtok_out;
 }
 
+function opusWarn(seat) {
+  const model = state.agentDraft[seat.id]?.model || "";
+  if (seat.id === "risk_conservative" || seat.id === "fm_conservative") return false;
+  return /opus/i.test(model);
+}
+
+function visibleStages() {
+  const query = state.agentQuery.trim().toLowerCase();
+  const known = new Set(AGENT_STAGES.flatMap((stage) => stage.seats));
+  const extras = (state.agentDoc?.seats || []).map((s) => s.id).filter((id) => !known.has(id));
+  const stages = extras.length ? AGENT_STAGES.concat([{ id: "other", label: "Other", seats: extras }]) : AGENT_STAGES;
+  return stages.map((stage) => ({
+    ...stage,
+    rows: stage.seats.map(seatById).filter(Boolean).filter((seat) => {
+      if (state.agentModifiedOnly && !isModified(seat)) return false;
+      if (!query) return true;
+      const draft = state.agentDraft[seat.id] || {};
+      const blob = `${seat.label} ${AGENT_ROLES[seat.id] || ""} ${draft.model || ""} ${stage.label}`.toLowerCase();
+      return blob.includes(query);
+    }),
+  })).filter((stage) => stage.rows.length);
+}
+
+function visibleIds() {
+  return visibleStages().flatMap((stage) => stage.rows.map((seat) => seat.id));
+}
+
+function iconEl(name, cls) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", cls);
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `${SPRITE}#${name}`);
+  svg.append(use);
+  return svg;
+}
+
+function badge(cls, label, icon) {
+  const el = document.createElement("span");
+  el.className = `ar-badge ${cls}`;
+  if (icon) el.append(iconEl(icon, "ar-icon ar-icon--sm"));
+  el.append(document.createTextNode(label));
+  return el;
+}
+
+function fillStatus(cell, seat) {
+  const wrap = document.createElement("div");
+  wrap.className = "ar-agent-status";
+  if (seat.locked && seatLocked(seat)) {
+    wrap.append(badge("ar-badge--warn", "Locked", "lock"));
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ar-btn ar-btn--sm ar-btn--ghost";
+    btn.dataset.unlock = seat.id;
+    btn.setAttribute("aria-label", "Unlock");
+    btn.dataset.tooltip = "Unlock";
+    btn.innerHTML = `${iconSvg("lock")}<span class="ar-btn__label">Unlock</span>`;
+    wrap.append(btn);
+  } else if (seat.locked) {
+    wrap.append(badge("ar-badge--neutral", "Unlocked"));
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ar-btn ar-btn--sm ar-btn--ghost";
+    btn.dataset.lock = seat.id;
+    btn.setAttribute("aria-label", "Lock again");
+    btn.dataset.tooltip = "Lock again";
+    btn.innerHTML = `${iconSvg("lock")}<span class="ar-btn__label">Lock</span>`;
+    wrap.append(btn);
+  }
+  if (opusWarn(seat)) wrap.append(badge("ar-badge--warn", "Opus", "triangle-alert"));
+  if (isModified(seat)) {
+    const mod = badge("ar-badge--info", "Modified");
+    mod.prepend(Object.assign(document.createElement("span"), { className: "ar-badge__dot" }));
+    wrap.append(mod);
+  } else if (!(seat.locked && seatLocked(seat))) {
+    wrap.append(badge("ar-badge--neutral", "Default"));
+  } else {
+    wrap.append(badge("ar-badge--neutral", "Default"));
+  }
+  cell.replaceChildren(wrap);
+}
+
+function modelOptions(select, seat) {
+  const draft = state.agentDraft[seat.id];
+  const known = state.agentDoc.models || [];
+  select.replaceChildren();
+  if (draft.model && !known.some((m) => m.id === draft.model)) {
+    const custom = document.createElement("option");
+    custom.value = draft.model;
+    custom.textContent = draft.model;
+    select.append(custom);
+  }
+  known.forEach((model) => {
+    const opt = document.createElement("option");
+    opt.value = model.id;
+    opt.textContent = model.label || model.id;
+    select.append(opt);
+  });
+  select.value = draft.model;
+}
+
+function buildRow(seat) {
+  const draft = state.agentDraft[seat.id];
+  const locked = seatLocked(seat);
+  const tr = document.createElement("tr");
+  tr.dataset.seat = seat.id;
+  tr.tabIndex = -1;
+  if (state.agentSelected === seat.id) tr.setAttribute("aria-selected", "true");
+
+  const name = document.createElement("td");
+  const nameEl = document.createElement("div");
+  nameEl.className = "ar-agent-name";
+  nameEl.textContent = seat.label;
+  const role = document.createElement("div");
+  role.className = "ar-agent-role";
+  role.textContent = AGENT_ROLES[seat.id] || seat.group || "";
+  name.append(nameEl, role);
+
+  const model = document.createElement("td");
+  const modelWrap = document.createElement("div");
+  modelWrap.className = "ar-agent-model";
+  const fam = document.createElement("span");
+  fam.className = "ar-badge ar-badge--neutral";
+  fam.dataset.family = "1";
+  fam.textContent = familyOf(draft.model);
+  const select = document.createElement("select");
+  select.className = "ar-select ar-select--sm";
+  select.dataset.model = "1";
+  select.setAttribute("aria-label", `Model for ${seat.label}`);
+  select.disabled = locked;
+  modelOptions(select, seat);
+  modelWrap.append(fam, select);
+  model.append(modelWrap);
+
+  const effort = document.createElement("td");
+  const effortWrap = document.createElement("div");
+  effortWrap.className = "ar-agent-effort";
+  const effortSelect = document.createElement("select");
+  effortSelect.className = "ar-select ar-select--sm";
+  effortSelect.dataset.effort = "1";
+  effortSelect.setAttribute("aria-label", `Reasoning effort for ${seat.label}`);
+  AGENT_EFFORTS.forEach(([value, label]) => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    effortSelect.append(opt);
+  });
+  effortSelect.value = draft.effort || "";
+  effortSelect.disabled = locked || !seat.supports_effort;
+  if (!seat.supports_effort) {
+    effortWrap.dataset.tooltip = "Effort is not sent";
+    effortWrap.tabIndex = 0;
+  }
+  effortWrap.append(effortSelect);
+  effort.append(effortWrap);
+
+  const tokens = document.createElement("td");
+  tokens.className = "ar-num";
+  const tokenInput = document.createElement("input");
+  tokenInput.className = "ar-input ar-input--num ar-input--sm";
+  tokenInput.dataset.tokens = "1";
+  tokenInput.inputMode = "numeric";
+  tokenInput.setAttribute("aria-label", `Max tokens for ${seat.label}`);
+  tokenInput.value = draft.max_tokens == null ? "" : String(draft.max_tokens);
+  tokenInput.placeholder = "\u2014";
+  tokenInput.disabled = locked || !seat.supports_max_tokens;
+  if (!seat.supports_max_tokens) {
+    tokenInput.dataset.tooltip = "Max tokens are not sent";
+    tokenInput.tabIndex = 0;
+  }
+  tokens.append(tokenInput);
+
+  const cost = document.createElement("td");
+  cost.className = "ar-num ar-agent-cost";
+  cost.dataset.cost = "1";
+  const amount = seatCost(seat, draft.model);
+  cost.textContent = amount == null ? "\u2014" : moneyCost(amount);
+
+  const status = document.createElement("td");
+  status.dataset.status = "1";
+  fillStatus(status, seat);
+  tr.append(name, model, effort, tokens, cost, status);
+  return tr;
+}
+
+function patchRow(id) {
+  const seat = seatById(id);
+  const tr = document.querySelector(`#agentTable tr[data-seat="${id}"]`);
+  if (!seat || !tr) return;
+  const draft = state.agentDraft[id];
+  const locked = seatLocked(seat);
+  tr.toggleAttribute("aria-selected", state.agentSelected === id);
+  if (state.agentSelected === id) tr.setAttribute("aria-selected", "true");
+  else tr.removeAttribute("aria-selected");
+  const fam = tr.querySelector("[data-family]");
+  if (fam) fam.textContent = familyOf(draft.model);
+  const select = tr.querySelector("[data-model]");
+  if (select && document.activeElement !== select) {
+    modelOptions(select, seat);
+    select.disabled = locked;
+  }
+  const effort = tr.querySelector("[data-effort]");
+  if (effort && document.activeElement !== effort) {
+    effort.value = draft.effort || "";
+    effort.disabled = locked || !seat.supports_effort;
+  }
+  const tokens = tr.querySelector("[data-tokens]");
+  if (tokens && document.activeElement !== tokens) {
+    tokens.value = draft.max_tokens == null ? "" : String(draft.max_tokens);
+    tokens.disabled = locked || !seat.supports_max_tokens;
+  }
+  const cost = tr.querySelector("[data-cost]");
+  if (cost) {
+    const amount = seatCost(seat, draft.model);
+    cost.textContent = amount == null ? "\u2014" : moneyCost(amount);
+  }
+  fillStatus(tr.querySelector("[data-status]"), seat);
+}
+
+function renderEmpty(title, text, retry) {
+  const tbody = $("#agentTable");
+  tbody.replaceChildren();
+  const tr = document.createElement("tr");
+  const td = document.createElement("td");
+  td.colSpan = 6;
+  const box = document.createElement("div");
+  box.className = "ar-empty ar-agents__empty";
+  const icon = document.createElement("div");
+  icon.className = "ar-empty__icon";
+  icon.append(iconEl(retry ? "circle-x" : "search", "ar-icon ar-icon--lg"));
+  const h = document.createElement("p");
+  h.className = "ar-empty__title";
+  h.textContent = title;
+  const p = document.createElement("p");
+  p.className = "ar-empty__text";
+  p.textContent = text;
+  box.append(icon, h, p);
+  if (retry) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ar-btn";
+    btn.innerHTML = `${iconSvg("refresh-cw")}<span class="ar-btn__label">Retry</span>`;
+    btn.addEventListener("click", () => { state.agentDoc = null; loadAgents(); });
+    box.append(btn);
+  }
+  td.append(box);
+  tr.append(td);
+  tbody.append(tr);
+}
+
+function renderTable() {
+  const tbody = $("#agentTable");
+  if (!$("#agentTable")) return;
+  if (state.agentLoading && !state.agentDoc) {
+    tbody.replaceChildren();
+    for (let i = 0; i < 8; i += 1) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 6;
+      const bar = document.createElement("span");
+      bar.className = "ar-skeleton ar-skeleton--row";
+      td.append(bar);
+      tr.append(td);
+      tbody.append(tr);
+    }
+    return;
+  }
+  if (!state.agentDoc) {
+    renderEmpty("Agents did not load", state.agentError || "The config could not be read.", true);
+    return;
+  }
+  const stages = visibleStages();
+  if (!stages.length) {
+    const title = state.agentModifiedOnly ? "No modified agents" : "No agents match";
+    const text = state.agentModifiedOnly
+      ? "Every visible seat still uses its default model and role text."
+      : "Try another name, role, or model id.";
+    renderEmpty(title, text, false);
+    return;
+  }
+  tbody.replaceChildren();
+  stages.forEach((stage) => {
+    const group = document.createElement("tr");
+    group.className = "ar-agents__group";
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.textContent = stage.label;
+    group.append(cell);
+    tbody.append(group);
+    stage.rows.forEach((seat) => tbody.append(buildRow(seat)));
+  });
+}
+
+function paintLines(text) {
+  const count = Math.max(1, String(text || "").split("\n").length);
+  const lines = [];
+  for (let i = 1; i <= count; i += 1) lines.push(String(i));
+  $("#agentLines").textContent = lines.join("\n");
+}
+
+function setAgentTab(name) {
+  state.agentTab = name;
+  $$("[data-agent-tab]").forEach((btn) => {
+    const on = btn.dataset.agentTab === name;
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  $("#agentPreview").classList.toggle("hidden", name !== "preview");
+  $("#agentEdit").classList.toggle("hidden", name !== "edit");
+  $("#agentDiff").classList.toggle("hidden", name !== "diff");
+  const seat = seatById(state.agentSelected);
+  if (!seat) return;
+  const system = state.agentDraft[seat.id]?.system || "";
+  if (name === "preview") renderMarkdown($("#agentPreview"), system || "_No role text._");
+  if (name === "diff") fillDiff($("#agentDiff"), seat.default_system || "", system);
+  if (name === "edit") paintLines(system);
+}
+
+function buildPanelMeta(seat) {
+  const host = $("#agentPanelMeta");
+  host.replaceChildren();
+  const draft = state.agentDraft[seat.id];
+  const locked = seatLocked(seat);
+
+  const effortField = document.createElement("div");
+  effortField.className = "ar-field";
+  const effortLabel = document.createElement("span");
+  effortLabel.className = "ar-label";
+  effortLabel.textContent = "Reasoning effort";
+  const seg = document.createElement("div");
+  seg.className = "ar-segmented";
+  seg.setAttribute("role", "group");
+  seg.setAttribute("aria-label", "Reasoning effort");
+  if (!seat.supports_effort) {
+    seg.dataset.tooltip = "Effort is not sent";
+    seg.tabIndex = 0;
+  }
+  AGENT_EFFORTS.forEach(([value, label]) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.dataset.panelEffort = value;
+    btn.setAttribute("aria-pressed", String((draft.effort || "") === value));
+    btn.disabled = locked || !seat.supports_effort;
+    btn.addEventListener("click", () => {
+      state.agentDraft[seat.id].effort = value;
+      $$("[data-panel-effort]", seg).forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+      patchRow(seat.id);
+      syncBar();
+    });
+    seg.append(btn);
+  });
+  effortField.append(effortLabel, seg);
+
+  const tokenField = document.createElement("div");
+  tokenField.className = "ar-field";
+  const tokenLabel = document.createElement("label");
+  tokenLabel.className = "ar-label";
+  tokenLabel.htmlFor = "agentPanelTokens";
+  tokenLabel.textContent = "Max tokens";
+  const tokenInput = document.createElement("input");
+  tokenInput.className = "ar-input ar-input--num";
+  tokenInput.id = "agentPanelTokens";
+  tokenInput.inputMode = "numeric";
+  tokenInput.value = draft.max_tokens == null ? "" : String(draft.max_tokens);
+  tokenInput.disabled = locked || !seat.supports_max_tokens;
+  tokenInput.addEventListener("input", () => {
+    const parsed = parseTokens(tokenInput.value);
+    tokenInput.setAttribute("aria-invalid", parsed.ok ? "false" : "true");
+    if (!parsed.ok) return;
+    state.agentDraft[seat.id].max_tokens = parsed.value == null ? seat.default_max_tokens : parsed.value;
+    patchRow(seat.id);
+    syncBar();
+  });
+  tokenField.append(tokenLabel, tokenInput);
+
+  const customField = document.createElement("div");
+  customField.className = "ar-field";
+  const customLabel = document.createElement("label");
+  customLabel.className = "ar-label";
+  customLabel.htmlFor = "agentCustomModel";
+  customLabel.textContent = "Custom model id";
+  const custom = document.createElement("input");
+  custom.className = "ar-input ar-input--mono";
+  custom.id = "agentCustomModel";
+  custom.autocomplete = "off";
+  custom.spellcheck = false;
+  custom.placeholder = "provider/model";
+  custom.disabled = locked;
+  const known = new Set((state.agentDoc.models || []).map((m) => m.id));
+  custom.value = known.has(draft.model) ? "" : draft.model;
+  custom.addEventListener("input", () => {
+    const text = custom.value.trim();
+    const rowSelect = document.querySelector(`#agentTable tr[data-seat="${seat.id}"] [data-model]`);
+    state.agentDraft[seat.id].model = text || rowSelect?.value || seat.default_model;
+    patchRow(seat.id);
+    refreshPanelChrome();
+    refreshAgentWarnings();
+    syncBar();
+  });
+  customField.append(customLabel, custom);
+
+  host.append(effortField, tokenField, customField);
+  if (seat.supports_temperature) {
+    const tempField = document.createElement("div");
+    tempField.className = "ar-field";
+    const tempLabel = document.createElement("label");
+    tempLabel.className = "ar-label";
+    tempLabel.htmlFor = "agentPanelTemp";
+    tempLabel.textContent = "Temperature";
+    const temp = document.createElement("input");
+    temp.className = "ar-input ar-input--num";
+    temp.id = "agentPanelTemp";
+    temp.inputMode = "decimal";
+    temp.placeholder = "Not sent";
+    temp.value = draft.temperature == null ? "" : String(draft.temperature);
+    temp.disabled = locked;
+    temp.addEventListener("input", () => {
+      const parsed = parseTemp(temp.value);
+      temp.setAttribute("aria-invalid", parsed.ok ? "false" : "true");
+      if (!parsed.ok) return;
+      state.agentDraft[seat.id].temperature = parsed.value;
+      patchRow(seat.id);
+      syncBar();
+    });
+    tempField.append(tempLabel, temp);
+    host.append(tempField);
+  }
+}
+
+function parseTokens(value) {
+  const text = String(value || "").trim();
+  if (!text) return { ok: true, value: null };
+  if (!/^\d+$/.test(text)) return { ok: false };
+  const number = Number(text);
+  if (number < 1 || number > 200000) return { ok: false };
+  return { ok: true, value: number };
+}
+
+function parseTemp(value) {
+  const text = String(value || "").trim();
+  if (!text) return { ok: true, value: null };
+  const number = Number(text);
+  if (!Number.isFinite(number) || number < 0 || number > 2) return { ok: false };
+  return { ok: true, value: number };
+}
+
+function refreshPanelChrome() {
+  const seat = seatById(state.agentSelected);
+  if (!seat) return;
+  const draft = state.agentDraft[seat.id];
+  $("#agentPanelName").textContent = seat.label;
+  $("#agentPanelStage").textContent = stageOf(seat.id).label;
+  const chip = $("#agentPanelChip");
+  chip.textContent = `${familyOf(draft.model)} \u00b7 ${draft.model}`;
+  const note = $("#agentLockNote");
+  if (seat.locked && seatLocked(seat)) {
+    note.classList.remove("hidden");
+    note.textContent = `Locked to ${state.agentDoc.locked_model}. Unlock to change the model. Opus on any other seat warns and does not block.`;
+  } else if (opusWarn(seat)) {
+    note.classList.remove("hidden");
+    note.textContent = `${seat.label} uses ${draft.model}. Opus stays locked to the conservative seats. This is a warning, not a block.`;
+  } else {
+    note.classList.add("hidden");
+    note.textContent = "";
+  }
+}
+
+function refreshPanel(opts = {}) {
+  const seat = seatById(state.agentSelected);
+  if (!seat) return;
+  refreshPanelChrome();
+  const system = state.agentDraft[seat.id].system || "";
+  const area = $("#agentPrompt");
+  if (opts.forceText || document.activeElement !== area) area.value = system;
+  paintLines(area.value);
+  setAgentTab(state.agentTab || "preview");
+  syncBar();
+}
+
+function hidePanel() {
+  state.agentSelected = null;
+  $("#agentPanel").classList.add("hidden");
+  $("#agentPanel").setAttribute("aria-hidden", "true");
+  $("#tab-agents").classList.remove("is-panel");
+  $$("#agentTable tr[data-seat]").forEach((tr) => tr.removeAttribute("aria-selected"));
+  syncBar();
+}
+
+function selectAgent(id) {
+  if (!seatById(id)) return;
+  state.agentSelected = id;
+  $("#agentPanel").classList.remove("hidden");
+  $("#agentPanel").setAttribute("aria-hidden", "false");
+  $("#tab-agents").classList.add("is-panel");
+  $$("#agentTable tr[data-seat]").forEach((tr) => {
+    if (tr.dataset.seat === id) tr.setAttribute("aria-selected", "true");
+    else tr.removeAttribute("aria-selected");
+  });
+  buildPanelMeta(seatById(id));
+  refreshPanel({ forceText: true });
+  const row = document.querySelector(`#agentTable tr[data-seat="${id}"]`);
+  if (row) row.scrollIntoView({ block: "nearest" });
+}
+
+function requestClosePanel() {
+  const seat = seatById(state.agentSelected);
+  if (!seat) return;
+  if (seatDirty(seat)) {
+    state.agentCloseMode = "panel";
+    $("#agentCloseTitle").textContent = "Close this agent?";
+    $("#agentCloseText").textContent = `${seat.label} has unsaved changes. Discard them, or keep them in the table until you save.`;
+    $("#agentCloseModal").showModal();
+    return;
+  }
+  hidePanel();
+}
+
+function revertSeat(id) {
+  const seat = seatById(id);
+  if (!seat) return;
+  state.agentDraft[id] = draftFrom(seat);
+  if (seat.unlocked) state.agentUnlock.add(id);
+  else state.agentUnlock.delete(id);
+}
+
+function revertAll() {
+  (state.agentDoc?.seats || []).forEach((seat) => revertSeat(seat.id));
+}
+
+function syncBar() {
+  const count = unsavedIds().length;
+  const open = !!state.agentSelected && !$("#agentPanel").classList.contains("hidden");
+  $("#agentDirtyCount").textContent = count === 0
+    ? "No unsaved changes"
+    : `${count} unsaved change${count === 1 ? "" : "s"}`;
+  $("#agentDiscard").disabled = count === 0;
+  $("#agentSaveAll").disabled = count === 0;
+  $("#agentSave").disabled = count === 0;
+  $("#agentSaveAll").className = open ? "ar-btn" : "ar-btn ar-btn--primary";
+  const seat = seatById(state.agentSelected);
+  $("#agentSeatDirty").classList.toggle("hidden", !(seat && seatDirty(seat)));
+}
+
 function refreshAgentWarnings() {
   const warnings = [];
-  $$(".ar-agent-card").forEach((card) => {
-    const id = card.dataset.seat;
-    const model = currentModel(card);
-    if (id !== "risk_conservative" && id !== "fm_conservative" && /opus/i.test(model)) {
-      warnings.push(`${id} uses ${model}. Opus stays locked to the conservative seats. This is a warning, not a block.`);
+  (state.agentDoc?.seats || []).forEach((seat) => {
+    const model = state.agentDraft[seat.id]?.model || "";
+    if (opusWarn(seat)) {
+      warnings.push(`${seat.label} uses ${model}. Opus stays locked to the conservative seats. This is a warning, not a block.`);
     }
   });
-  const box = $("#agentWarn");
-  box.classList.toggle("hidden", warnings.length === 0);
+  $("#agentWarn").classList.toggle("hidden", warnings.length === 0);
   $("#agentWarnText").textContent = warnings.join(" ");
 }
 
-function renderSeat(seat) {
-  const card = document.createElement("section");
-  card.className = "ar-card ar-agent-card";
-  card.dataset.seat = seat.id;
-  const locked = seatLocked(seat);
-  const head = document.createElement("div");
-  head.className = "ar-card__header";
-  const title = document.createElement("h2");
-  title.className = "ar-card__title";
-  title.textContent = seat.label;
-  head.appendChild(title);
-  if (seat.locked) {
-    const badge = document.createElement("span");
-    badge.className = "ar-badge ar-badge--warn ar-agent-lock";
-    badge.innerHTML = `${iconSvg("lock", "ar-icon ar-icon--sm")}<span></span>`;
-    badge.querySelector("span").textContent = locked ? "Locked to Opus" : "Unlocked";
-    head.appendChild(badge);
-  }
-  card.appendChild(head);
-  const body = document.createElement("div");
-  body.className = "ar-card__body ar-stack";
-
-  const fields = document.createElement("div");
-  fields.className = "ar-agent-fields";
-
-  const modelField = document.createElement("div");
-  modelField.className = "ar-field";
-  const modelLabel = document.createElement("label");
-  modelLabel.className = "ar-label";
-  modelLabel.textContent = "Model";
-  const select = document.createElement("select");
-  select.className = "ar-select";
-  select.dataset.model = "1";
-  const known = new Set((state.agentDoc.models || []).map((m) => m.id));
-  const blank = document.createElement("option");
-  blank.value = "";
-  blank.textContent = "Custom id below";
-  select.appendChild(blank);
-  (state.agentDoc.models || []).forEach((m) => {
-    const opt = document.createElement("option");
-    opt.value = m.id;
-    opt.textContent = m.label ? `${m.label} (${m.id})` : m.id;
-    select.appendChild(opt);
-  });
-  select.value = known.has(seat.model) ? seat.model : "";
-  select.disabled = locked;
-  const custom = document.createElement("input");
-  custom.className = "ar-input";
-  custom.dataset.custom = "1";
-  custom.autocomplete = "off";
-  custom.spellcheck = false;
-  custom.id = `custom-${seat.id}`;
-  custom.placeholder = "openai/example-model";
-  custom.value = known.has(seat.model) ? "" : seat.model;
-  custom.disabled = locked;
-  const customLabel = document.createElement("label");
-  customLabel.className = "ar-label";
-  customLabel.htmlFor = custom.id;
-  customLabel.textContent = "Custom model id";
-  const modelHint = document.createElement("p");
-  modelHint.className = "ar-hint";
-  modelHint.textContent = locked
-    ? "Locked to anthropic/claude-opus-5.5. Unlock to change it."
-    : "The list is the curated set. A custom id is used when the text field is filled.";
-  modelLabel.htmlFor = `model-${seat.id}`;
-  select.id = `model-${seat.id}`;
-  modelField.append(modelLabel, select, customLabel, custom, modelHint);
-  fields.appendChild(modelField);
-
-  if (seat.supports_effort) {
-    const effortField = document.createElement("div");
-    effortField.className = "ar-field";
-    const effortLabel = document.createElement("label");
-    effortLabel.className = "ar-label";
-    effortLabel.textContent = "Reasoning effort";
-    effortLabel.htmlFor = `effort-${seat.id}`;
-    const effort = document.createElement("select");
-    effort.className = "ar-select";
-    effort.id = `effort-${seat.id}`;
-    effort.dataset.effort = "1";
-    [["", "Provider default"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]].forEach(([value, label]) => {
-      const opt = document.createElement("option");
-      opt.value = value;
-      opt.textContent = label;
-      effort.appendChild(opt);
-    });
-    effort.value = seat.effort || "";
-    effortField.append(effortLabel, effort);
-    fields.appendChild(effortField);
-  }
-
-  const numWrap = document.createElement("div");
-  numWrap.className = "ar-stack";
-  if (seat.supports_max_tokens) {
-    const field = document.createElement("div");
-    field.className = "ar-field";
-    const label = document.createElement("label");
-    label.className = "ar-label";
-    label.textContent = "Max tokens";
-    label.htmlFor = `tokens-${seat.id}`;
-    const input = document.createElement("input");
-    input.className = "ar-input ar-input--num";
-    input.id = `tokens-${seat.id}`;
-    input.dataset.tokens = "1";
-    input.inputMode = "numeric";
-    input.value = seat.max_tokens == null ? "" : String(seat.max_tokens);
-    input.placeholder = "Provider default";
-    field.append(label, input);
-    numWrap.appendChild(field);
-  }
-  if (seat.supports_temperature) {
-    const field = document.createElement("div");
-    field.className = "ar-field";
-    const label = document.createElement("label");
-    label.className = "ar-label";
-    label.textContent = "Temperature";
-    label.htmlFor = `temp-${seat.id}`;
-    const input = document.createElement("input");
-    input.className = "ar-input ar-input--num";
-    input.id = `temp-${seat.id}`;
-    input.dataset.temp = "1";
-    input.inputMode = "decimal";
-    input.value = seat.temperature == null ? "" : String(seat.temperature);
-    input.placeholder = "Not sent";
-    field.append(label, input);
-    numWrap.appendChild(field);
-  }
-  if (numWrap.childElementCount) fields.appendChild(numWrap);
-  body.appendChild(fields);
-
-  const cost = document.createElement("p");
-  cost.className = "ar-subtle ar-num";
-  cost.dataset.cost = "1";
-  const amount = seatCost(seat, seat.model);
-  if (amount == null) cost.hidden = true;
-  else cost.textContent = `Estimated this run ${moneyLevel(amount)}`;
-  body.appendChild(cost);
-
-  const promptField = document.createElement("div");
-  promptField.className = "ar-field";
-  const promptLabel = document.createElement("label");
-  promptLabel.className = "ar-label";
-  promptLabel.textContent = "Role prompt";
-  promptLabel.htmlFor = `prompt-${seat.id}`;
-  const area = document.createElement("textarea");
-  area.className = "ar-input ar-prompt";
-  area.id = `prompt-${seat.id}`;
-  area.dataset.prompt = "1";
-  area.rows = 8;
-  area.value = seat.system || "";
-  const hint = document.createElement("p");
-  hint.className = "ar-hint";
-  hint.textContent = "Ticker data, tool results, and the debate are added at run time. Reset restores the default role text.";
-  promptField.append(promptLabel, area, hint);
-  body.appendChild(promptField);
-
-  const diff = document.createElement("pre");
-  diff.className = "ar-code ar-diff hidden";
-  diff.dataset.diff = "1";
-  body.appendChild(diff);
-
-  const actions = document.createElement("div");
-  actions.className = "ar-row";
-  const reset = document.createElement("button");
-  reset.type = "button";
-  reset.className = "ar-btn";
-  reset.innerHTML = `${iconSvg("refresh-cw")}<span class="ar-btn__label">Reset to default</span>`;
-  reset.addEventListener("click", () => {
-    area.value = seat.default_system || "";
-    if (!diff.classList.contains("hidden")) fillDiff(diff, seat.default_system || "", area.value);
-  });
-  const show = document.createElement("button");
-  show.type = "button";
-  show.className = "ar-btn ar-btn--ghost";
-  show.innerHTML = `${iconSvg("eye")}<span class="ar-btn__label">Show diff</span>`;
-  show.addEventListener("click", () => {
-    const open = diff.classList.contains("hidden");
-    diff.classList.toggle("hidden", !open);
-    show.querySelector(".ar-btn__label").textContent = open ? "Hide diff" : "Show diff";
-    if (open) fillDiff(diff, seat.default_system || "", area.value);
-  });
-  actions.append(reset, show);
-  if (seat.locked) {
-    const unlock = document.createElement("button");
-    unlock.type = "button";
-    unlock.className = "ar-btn";
-    unlock.innerHTML = `${iconSvg("lock")}<span class="ar-btn__label">${locked ? "Unlock" : "Lock again"}</span>`;
-    unlock.addEventListener("click", () => {
-      if (!locked) {
-        state.agentUnlock.delete(seat.id);
-        const fresh = state.agentDoc.seats.find((s) => s.id === seat.id);
-        if (fresh) {
-          fresh.unlocked = false;
-          fresh.model = state.agentDoc.locked_model;
-        }
-        renderAgents();
-        return;
-      }
-      state.pendingUnlock = seat.id;
-      $("#unlockText").textContent = `${seat.group}: ${seat.label} is locked to ${state.agentDoc.locked_model}. Unlocking lets you change the model. Save agents writes it. No model is called.`;
-      $("#unlockModal").showModal();
-    });
-    actions.appendChild(unlock);
-  }
-  body.appendChild(actions);
-  card.appendChild(body);
-
-  const onModel = () => {
-    const model = currentModel(card);
-    const amountNow = seatCost(seat, model);
-    cost.hidden = amountNow == null;
-    if (amountNow != null) cost.textContent = `Estimated this run ${moneyLevel(amountNow)}`;
-    refreshAgentWarnings();
-  };
-  select.addEventListener("change", () => {
-    if (select.value) custom.value = "";
-    onModel();
-  });
-  custom.addEventListener("input", onModel);
-  return card;
-}
-
 function renderAgents() {
-  const host = $("#agentSeats");
-  host.replaceChildren();
   const doc = state.agentDoc;
-  if (!doc) return;
-  $("#agentPricing").textContent = doc.pricing_note || "";
-  let last = "";
-  (doc.seats || []).forEach((seat) => {
-    if (seat.group !== last) {
-      const h = document.createElement("h2");
-      h.className = "ar-h2";
-      h.textContent = seat.group;
-      host.appendChild(h);
-      last = seat.group;
-    }
-    host.appendChild(renderSeat(seat));
-  });
+  $("#agentPricing").textContent = doc?.pricing_note || "";
+  const err = $("#agentError");
+  err.classList.toggle("hidden", !state.agentError);
+  $("#agentErrorText").textContent = state.agentError || "";
+  renderTable();
   refreshAgentWarnings();
+  if (state.agentSelected && seatById(state.agentSelected)) {
+    buildPanelMeta(seatById(state.agentSelected));
+    refreshPanel();
+  } else if (state.agentSelected) hidePanel();
+  syncBar();
 }
 
 async function loadAgents() {
-  state.agentDoc = await api("/api/agents");
-  renderAgents();
+  if (unsavedIds().length) return;
+  state.agentError = "";
+  if (!state.agentDoc) {
+    state.agentLoading = true;
+    renderAgents();
+  }
+  try {
+    applyServer(await api("/api/agents"));
+    state.agentLoading = false;
+    renderAgents();
+  } catch (e) {
+    state.agentLoading = false;
+    state.agentError = e.message || "Could not load agents";
+    renderAgents();
+  }
 }
 
 function collectAgents() {
   const seats = {};
   const unlock = [];
-  $$(".ar-agent-card").forEach((card) => {
-    const id = card.dataset.seat;
-    const seat = (state.agentDoc.seats || []).find((s) => s.id === id) || {};
-    const tokens = card.querySelector("[data-tokens]");
-    const temp = card.querySelector("[data-temp]");
-    const effort = card.querySelector("[data-effort]");
-    const row = {
-      model: currentModel(card),
-      effort: effort ? (effort.value || null) : null,
-      temperature: temp && temp.value !== "" ? Number(temp.value) : null,
-      max_tokens: tokens && tokens.value !== "" ? Number(tokens.value) : null,
-      system: card.querySelector("[data-prompt]").value,
+  const lockedModel = state.agentDoc.locked_model;
+  (state.agentDoc.seats || []).forEach((seat) => {
+    const draft = state.agentDraft[seat.id];
+    const model = (draft.model || "").trim() || seat.default_model;
+    seats[seat.id] = {
+      model,
+      effort: draft.effort || null,
+      temperature: seat.supports_temperature ? draft.temperature : null,
+      max_tokens: draft.max_tokens,
+      system: draft.system || "",
     };
-    seats[id] = row;
-    if ((id === "risk_conservative" || id === "fm_conservative") && state.agentUnlock.has(id) && row.model !== state.agentDoc.locked_model) {
-      unlock.push(id);
+    if ((seat.id === "risk_conservative" || seat.id === "fm_conservative")
+      && state.agentUnlock.has(seat.id) && model !== lockedModel) {
+      unlock.push(seat.id);
     }
   });
   return { seats, unlock };
 }
 
 async function persistAgents() {
-  const body = collectAgents();
-  state.agentDoc = await api("/api/agents", { method: "PUT", body: JSON.stringify(body) });
-  state.agentUnlock = new Set(
-    (state.agentDoc.seats || []).filter((s) => s.unlocked).map((s) => s.id),
-  );
+  const doc = await api("/api/agents", { method: "PUT", body: JSON.stringify(collectAgents()) });
+  applyServer(doc);
   renderAgents();
-  const warns = state.agentDoc.warnings || [];
+  const warns = doc.warnings || [];
   showToast(warns.length ? `Saved. ${warns.length} Opus warning${warns.length === 1 ? "" : "s"}.` : "Agent config saved.", warns.length ? "warn" : "ok");
 }
 
-$("#btnSaveAgents").addEventListener("click", () => {
+function requestSave() {
+  if (!unsavedIds().length) return;
   state.pendingRun = null;
   state.pendingTheme = null;
   state.pendingRemove = null;
   state.pendingAgentSave = true;
   $("#confirmText").textContent = "Save these models and role prompts? The next fund-manager, theme-scout, and per-ticker run reads them. Nothing is called now.";
   openConfirm();
+}
+
+function openUnlock(id) {
+  const seat = seatById(id);
+  if (!seat) return;
+  state.pendingUnlock = id;
+  $("#unlockText").textContent = `${stageOf(id).label}: ${seat.label} is locked to ${state.agentDoc.locked_model}. Unlocking lets you change the model. Save writes it. No model is called.`;
+  $("#unlockModal").showModal();
+}
+
+$("#agentTable").addEventListener("click", (e) => {
+  const unlock = e.target.closest("[data-unlock]");
+  if (unlock) {
+    openUnlock(unlock.dataset.unlock);
+    return;
+  }
+  const lock = e.target.closest("[data-lock]");
+  if (lock) {
+    const id = lock.dataset.lock;
+    state.agentUnlock.delete(id);
+    if (state.agentDraft[id]) state.agentDraft[id].model = state.agentDoc.locked_model;
+    renderAgents();
+    if (state.agentSelected === id) buildPanelMeta(seatById(id));
+    return;
+  }
+  if (e.target.closest("input, select, button, textarea, a, label")) return;
+  const tr = e.target.closest("tr[data-seat]");
+  if (tr) selectAgent(tr.dataset.seat);
+});
+
+$("#agentTable").addEventListener("change", (e) => {
+  const tr = e.target.closest("tr[data-seat]");
+  if (!tr) return;
+  const draft = state.agentDraft[tr.dataset.seat];
+  if (!draft) return;
+  if (e.target.matches("[data-model]")) {
+    draft.model = e.target.value;
+    if (state.agentSelected === tr.dataset.seat) {
+      buildPanelMeta(seatById(tr.dataset.seat));
+      refreshPanelChrome();
+    }
+  }
+  if (e.target.matches("[data-effort]")) {
+    draft.effort = e.target.value;
+    if (state.agentSelected === tr.dataset.seat) buildPanelMeta(seatById(tr.dataset.seat));
+  }
+  patchRow(tr.dataset.seat);
+  refreshAgentWarnings();
+  syncBar();
+});
+
+$("#agentTable").addEventListener("input", (e) => {
+  if (!e.target.matches("[data-tokens]")) return;
+  const tr = e.target.closest("tr[data-seat]");
+  const seat = seatById(tr?.dataset.seat);
+  if (!seat) return;
+  const parsed = parseTokens(e.target.value);
+  e.target.setAttribute("aria-invalid", parsed.ok ? "false" : "true");
+  if (!parsed.ok) return;
+  state.agentDraft[seat.id].max_tokens = parsed.value == null ? seat.default_max_tokens : parsed.value;
+  if (state.agentSelected === seat.id) {
+    const panelTokens = $("#agentPanelTokens");
+    if (panelTokens && document.activeElement !== panelTokens) {
+      panelTokens.value = state.agentDraft[seat.id].max_tokens == null ? "" : String(state.agentDraft[seat.id].max_tokens);
+    }
+  }
+  patchRow(seat.id);
+  syncBar();
+});
+
+$("#agentSearch").addEventListener("input", () => {
+  state.agentQuery = $("#agentSearch").value;
+  renderTable();
+});
+
+$("#agentModifiedOnly").addEventListener("change", () => {
+  state.agentModifiedOnly = $("#agentModifiedOnly").checked;
+  renderTable();
+});
+
+$$("[data-agent-tab]").forEach((btn) => {
+  btn.addEventListener("click", () => setAgentTab(btn.dataset.agentTab));
+});
+
+$("#agentPrompt").addEventListener("input", () => {
+  const seat = seatById(state.agentSelected);
+  if (!seat) return;
+  state.agentDraft[seat.id].system = $("#agentPrompt").value;
+  paintLines($("#agentPrompt").value);
+  if (state.agentTab === "preview") renderMarkdown($("#agentPreview"), $("#agentPrompt").value || "_No role text._");
+  if (state.agentTab === "diff") fillDiff($("#agentDiff"), seat.default_system || "", $("#agentPrompt").value);
+  patchRow(seat.id);
+  syncBar();
+});
+
+$("#agentPrompt").addEventListener("scroll", () => {
+  $("#agentLines").scrollTop = $("#agentPrompt").scrollTop;
+});
+
+$("#agentReset").addEventListener("click", () => {
+  const seat = seatById(state.agentSelected);
+  if (!seat) return;
+  state.agentDraft[seat.id].system = seat.default_system || "";
+  refreshPanel({ forceText: true });
+  patchRow(seat.id);
+  syncBar();
+});
+
+$("#agentSave").addEventListener("click", requestSave);
+$("#agentSaveAll").addEventListener("click", requestSave);
+$("#agentPanelClose").addEventListener("click", requestClosePanel);
+$("#agentBackdrop").addEventListener("click", requestClosePanel);
+
+$("#agentDiscard").addEventListener("click", () => {
+  const count = unsavedIds().length;
+  if (!count) return;
+  state.agentCloseMode = "all";
+  $("#agentCloseTitle").textContent = "Discard unsaved edits?";
+  $("#agentCloseText").textContent = `Discard ${count} unsaved change${count === 1 ? "" : "s"}? The table returns to the last save.`;
+  $("#agentCloseModal").showModal();
+});
+
+$("#agentCloseKeep").addEventListener("click", () => {
+  const mode = state.agentCloseMode;
+  $("#agentCloseModal").close();
+  state.agentCloseMode = null;
+  if (mode === "panel") hidePanel();
+});
+
+$("#agentCloseDiscard").addEventListener("click", () => {
+  const mode = state.agentCloseMode;
+  const selected = state.agentSelected;
+  $("#agentCloseModal").close();
+  state.agentCloseMode = null;
+  if (mode === "panel" && selected) revertSeat(selected);
+  if (mode === "all") revertAll();
+  hidePanel();
+  renderAgents();
+});
+
+$("#agentResize").addEventListener("pointerdown", (e) => {
+  if (window.innerWidth <= 1100) return;
+  e.preventDefault();
+  const body = $(".ar-agents__body");
+  const panel = $("#agentPanel");
+  const move = (ev) => {
+    const rect = body.getBoundingClientRect();
+    const pct = Math.min(56, Math.max(28, ((rect.right - ev.clientX) / rect.width) * 100));
+    panel.style.width = `${pct}%`;
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+});
+
+document.addEventListener("keydown", (e) => {
+  if (state.tab !== "agents") return;
+  if (document.querySelector("dialog[open]")) return;
+  if (e.key === "Escape" && state.agentSelected) {
+    e.preventDefault();
+    requestClosePanel();
+    return;
+  }
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  const tag = document.activeElement?.tagName || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || document.activeElement?.isContentEditable) return;
+  const ids = visibleIds();
+  if (!ids.length) return;
+  e.preventDefault();
+  let index = ids.indexOf(state.agentSelected);
+  if (e.key === "ArrowDown") index = index < 0 ? 0 : Math.min(ids.length - 1, index + 1);
+  else index = index < 0 ? ids.length - 1 : Math.max(0, index - 1);
+  selectAgent(ids[index]);
 });
 
 $("#unlockCancel").addEventListener("click", () => $("#unlockModal").close());
 $("#unlockGo").addEventListener("click", () => {
   if (state.pendingUnlock) state.agentUnlock.add(state.pendingUnlock);
+  const id = state.pendingUnlock;
   state.pendingUnlock = null;
   $("#unlockModal").close();
   renderAgents();
+  if (id && state.agentSelected === id) {
+    buildPanelMeta(seatById(id));
+    refreshPanel({ forceText: true });
+  }
 });
+
 
 /* ---------- boot ---------- */
 (async function boot() {
