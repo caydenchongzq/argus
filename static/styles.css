@@ -405,5 +405,6 @@
   .ar-date-row { grid-template-columns: 1fr; }
   .ar-field--filter { width: 100%; }
 }
+#runSpend.is-over { color: var(--argus-warn); }
 #tab-portfolio .ar-card__header:has(#pfSleeve) { flex-wrap: wrap; align-items: flex-start; }
 #pfSleeve { margin: 0; margin-left: auto; max-width: 42rem; }

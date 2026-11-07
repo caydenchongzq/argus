@@ -10,7 +10,6 @@ import os
 import re
 import sys
 import secrets
-import shutil
 import subprocess
 import threading
 import uuid
@@ -650,6 +649,18 @@ def get_watchlist():
     return {"items": cleaned, "subthemes": _subtheme_table(cleaned)}
 
 
+def _watch_log(action: str, ticker: str, row: dict, reason: str = "") -> None:
+    import watchlist_log
+    watchlist_log.append_event(DATA, {
+        "as_of": datetime.now().strftime("%Y-%m-%d"),
+        "action": action,
+        "ticker": ticker,
+        "reason": reason,
+        "source": "argus",
+        "row": row,
+    })
+
+
 @app.post("/api/watchlist")
 def add_watchlist(item: WatchlistAdd):
     ticker = _safe_ticker(item.ticker)
@@ -657,10 +668,6 @@ def add_watchlist(item: WatchlistAdd):
     for it in current:
         if str(it.get("ticker", "")).upper() == ticker:
             raise HTTPException(409, f"{ticker} already on watchlist")
-    # backup
-    if WATCHLIST.exists():
-        bak = WATCHLIST.with_suffix(WATCHLIST.suffix + f".bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        shutil.copy2(WATCHLIST, bak)
     entry = {"ticker": ticker, "sector": item.sector.strip() or "Other", "type": item.type}
     if item.sub_theme:
         if item.sub_theme not in _subtheme_labels() and item.sub_theme not in SUBTHEME_ORDER:
@@ -668,6 +675,7 @@ def add_watchlist(item: WatchlistAdd):
         entry["sub_theme"] = item.sub_theme
     current.append(entry)
     _write_json(WATCHLIST, current)
+    _watch_log("add", ticker, entry, "added in Argus")
     return {"ok": True, "items": current}
 
 
@@ -676,15 +684,43 @@ def remove_watchlist(ticker: str):
     ticker = _safe_ticker(ticker)
     if not WATCHLIST.exists():
         raise HTTPException(404, "Watchlist empty")
-    if WATCHLIST.exists():
-        bak = WATCHLIST.with_suffix(WATCHLIST.suffix + f".bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        shutil.copy2(WATCHLIST, bak)
     current = get_watchlist()["items"]
+    removed = next((it for it in current if str(it.get("ticker", "")).upper() == ticker), None)
     new = [it for it in current if str(it.get("ticker", "")).upper() != ticker]
-    if len(new) == len(current):
+    if removed is None:
         raise HTTPException(404, f"{ticker} not on watchlist")
     _write_json(WATCHLIST, new)
+    _watch_log("drop", ticker, removed, "removed in Argus")
     return {"ok": True, "items": new}
+
+
+@app.post("/api/watchlist/undo")
+def undo_watchlist():
+    import watchlist_log
+    events = watchlist_log.read_events(DATA)
+    event = watchlist_log.last_undoable(events)
+    if event is None:
+        raise HTTPException(404, "Nothing to undo")
+    current = get_watchlist()["items"] if WATCHLIST.exists() else []
+    updated = watchlist_log.undo_items(current, event)
+    _write_json(WATCHLIST, updated)
+    undone = watchlist_log.append_event(DATA, {
+        "as_of": datetime.now().strftime("%Y-%m-%d"),
+        "action": "undo",
+        "ticker": event.get("ticker"),
+        "reason": f"undo {event.get('action')}",
+        "source": "argus",
+        "undo_of": event.get("id"),
+        "row": event.get("row"),
+    })
+    return {"ok": True, "undone": undone, "items": updated}
+
+
+@app.get("/api/spend")
+def spend():
+    import cost_ledger
+    targets = _read_json(TARGETS) if TARGETS.exists() else {}
+    return cost_ledger.weekly_spend(DATA, datetime.now().date(), targets)
 
 
 # ---------------------------------------------------------------------------

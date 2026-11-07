@@ -455,6 +455,18 @@ async function loadWatchlist() {
     </tr>`).join("") || `<tr><td colspan="5" class="ar-subtle">Empty watchlist</td></tr>`;
 }
 
+$("#wlUndo").addEventListener("click", async () => {
+  const err = $("#wlErr");
+  err.classList.add("hidden");
+  try {
+    await api("/api/watchlist/undo", { method: "POST", body: "{}" });
+    await loadWatchlist();
+  } catch (e) {
+    $("#wlErrText").textContent = e.message;
+    err.classList.remove("hidden");
+  }
+});
+
 $("#wlAdd").addEventListener("click", async () => {
   const err = $("#wlErr");
   err.classList.add("hidden");
@@ -600,11 +612,25 @@ async function loadRuns() {
   state.flags = cfg.flags || {};
   $("#optWlWrap").classList.toggle("hidden", !state.flags.IncludeWatchlist);
 
-  const [book, wl, runs] = await Promise.all([
+  const [book, wl, runs, spend] = await Promise.all([
     api("/api/portfolio"),
     api("/api/watchlist"),
     api("/api/runs"),
+    api("/api/spend"),
   ]);
+  const spendEl = $("#runSpend");
+  if (spendEl && spend) {
+    const spent = Number(spend.spent_usd || 0);
+    const budget = Number(spend.budget_usd || 0);
+    const unpriced = Number(spend.unpriced_runs || 0);
+    const estimated = Number(spend.estimated_runs || 0);
+    let extra = "";
+    if (estimated) extra += ` · ${estimated} older runs priced from tokens (upper bound)`;
+    if (unpriced) extra += ` · ${unpriced} runs with no tokens or price`;
+    const text = `This week ${moneyCost(spent)} of ${moneyCost(budget)}${extra}`;
+    spendEl.textContent = text;
+    spendEl.classList.toggle("is-over", budget > 0 && spent >= budget);
+  }
   state.bookTickers = (book.positions || []).map((p) => p.ticker);
   state.watchlist = wl.items || [];
   state.runs = runs.runs || [];
@@ -807,7 +833,7 @@ function openConfirm() {
     setConfirmButton("Save agents", "primary", "check");
   } else if (state.pendingRemove) {
     $("#confirmTitle").textContent = "Remove from watchlist";
-    $("#confirmCaption").textContent = "Writes data/watchlist.json after a backup.";
+    $("#confirmCaption").textContent = "Writes data/watchlist.json and appends the change log. Undo restores the last add or removal.";
     setConfirmButton("Remove", "danger", "trash-2");
   } else if (state.pendingTheme?.mode === "screen") {
     $("#confirmTitle").textContent = "Run daily screen";
@@ -918,7 +944,7 @@ function queueThemeRun(mode) {
   const est = mode === "screen"
     ? "Daily screen is free and does not edit the watchlist. A few minutes of price and earnings lookups."
     : (includeLlm
-      ? "Weekly scout: one Sol call, about $0.10–$0.30, then a watchlist backup and update."
+      ? "Weekly scout: one Sol call, about $0.10–$0.30. Shadow mode writes a proposal and does not edit the watchlist."
       : "Weekly pack without the Sol call. Free. The watchlist is not edited.");
   $("#confirmText").textContent = est;
   openConfirm();

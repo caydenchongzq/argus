@@ -103,7 +103,7 @@
         <div class="ar-page-head">
           <div>
             <h1 class="ar-h1">Watchlist</h1>
-            <p class="ar-muted">Candidates outside the book. Edits <span class="ar-code-inline">data/watchlist.json</span> and keeps a backup.</p>
+            <p class="ar-muted">Candidates outside the book. Edits <span class="ar-code-inline">data/watchlist.json</span> and appends the change log.</p>
           </div>
         </div>
         <section class="ar-card">
@@ -137,6 +137,10 @@
               <button class="ar-btn ar-btn--primary" id="wlAdd" type="button">
                 <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#plus"/></svg>
                 <span class="ar-btn__label">Add</span>
+              </button>
+              <button class="ar-btn" id="wlUndo" type="button" title="Undo the last watchlist add or removal">
+                <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#undo-2"/></svg>
+                <span class="ar-btn__label">Undo</span>
               </button>
             </div>
             <div id="wlErr" class="ar-alert ar-alert--danger hidden" role="alert">
@@ -302,6 +306,7 @@
           <div>
             <h1 class="ar-h1">Runs</h1>
             <p class="ar-muted">Trigger fund manager / selective agent runs (costs money when models run)</p>
+            <p class="ar-subtle" id="runSpend">Weekly spend —</p>
           </div>
         </div>
         <div class="ar-grid">

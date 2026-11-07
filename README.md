@@ -36,7 +36,7 @@ $env:TRADINGAGENTS_ROOT = "D:\path\to\TradingAgents"
 | Tab | Features |
 |-----|----------|
 | **Portfolio** | Holdings from the book. Value, weight and cash % are quantity × the latest stats price, recomputed when the book has changed. An AI sub-theme table shows direct holding weight |
-| **Watchlist** | View / add / remove candidates; writes `data\watchlist.json` with timestamped `.bak` copies. Candidates are grouped by AI sub-theme |
+| **Watchlist** | View / add / remove candidates; writes `data\watchlist.json` and appends `data\watchlist_log.jsonl`; **Undo** reverses the last add or removal. Candidates are grouped by AI sub-theme |
 | **Reports** | List by ticker/date, rendered Markdown, latest rating highlighted |
 | **Fund manager** | Latest plan. Trades come from `final` / `final_check` (the add-on does not write a `decision` key). History includes timestamped run folders |
 | **Themes** | Latest theme-scout report and the free daily screen. Run buttons use the confirm token. The Sol call is off unless the checkbox is set |
