@@ -56,6 +56,7 @@
             <h1 class="ar-h1">Portfolio</h1>
             <p class="ar-muted" id="pfSub">Holdings, weights vs targets</p>
           </div>
+          <button type="button" class="ar-btn" id="tigerImportOpen">Import from Tiger</button>
         </div>
         <div class="ar-grid" id="pfCards"></div>
         <div class="ar-grid">
@@ -318,7 +319,7 @@
                 <label class="ar-check"><input type="checkbox" id="optNoLLM" /> Snapshot only (-NoLLM, free)</label>
                 <label class="ar-check"><input type="checkbox" id="optRisk" /> Include risk notes</label>
                 <label class="ar-check"><input type="checkbox" id="optNoMacro" /> No macro</label>
-                <label class="ar-check hidden" id="optWlWrap"><input type="checkbox" id="optWatchlist" /> Include watchlist</label>
+                <label class="ar-check hidden" id="optWlWrap"><input type="checkbox" id="optWatchlist" /> Run watchlist agents</label>
               </div>
               <div class="ar-date-row">
                 <div class="ar-field">
@@ -519,6 +520,28 @@
     </div>
   </dialog>
 
+  <dialog class="ar-dialog" id="tigerImportModal" aria-labelledby="tigerImportTitle">
+    <div class="ar-dialog__header">
+      <div class="ar-dialog__icon"><svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#briefcase-business"/></svg></div>
+      <div><h3 class="ar-dialog__title" id="tigerImportTitle">Review Tiger portfolio</h3>
+        <p class="ar-caption">Read-only OAuth query. Import replaces the Argus book with supported US stock positions and cash.</p></div>
+    </div>
+    <div class="ar-dialog__body">
+      <label class="ar-field"><span>Authorized account</span><select id="tigerAccount"><option value="">Load authorized accounts…</option></select></label>
+      <button type="button" class="ar-btn" id="tigerFetch">Fetch preview</button>
+      <div id="tigerPreviewBody" class="ar-subtle" aria-live="polite"></div>
+      <label class="ar-check hidden" id="tigerReplaceWrap"><input type="checkbox" id="tigerReplace"/><span>I reviewed this snapshot and want to replace the current positions and cash.</span></label>
+      <label class="ar-check hidden" id="tigerStockOnlyWrap"><input type="checkbox" id="tigerStockOnly"/><span>I understand this replaces Argus with stock positions only; other instrument types will be excluded.</span></label>
+      <label class="ar-check hidden" id="tigerEmptyWrap"><input type="checkbox" id="tigerEmpty"/><span>The account has zero positions; replace the current holdings with zero positions.</span></label>
+    </div>
+    <div class="ar-dialog__actions">
+      <div class="ar-btn-group ar-btn-group--equal">
+        <button type="button" class="ar-btn ar-btn--ghost" id="tigerCancel">Cancel</button>
+        <button type="button" class="ar-btn ar-btn--primary" id="tigerApply" disabled>Replace with stocks only</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog class="ar-dialog" id="agentCloseModal" aria-labelledby="agentCloseTitle">
     <div class="ar-dialog__header">
       <div class="ar-dialog__icon">
@@ -547,6 +570,7 @@
   </dialog>
 
   <div class="ar-toast-stack" id="toasts" aria-live="polite"></div>
-  <script src="/static/app.js"></script>
+  <script src="/static/tiger-preview-guard.js"></script>
+  <script src="/static/app.js?v=stock-import-confirmation-1"></script>
 </body>
 </html>

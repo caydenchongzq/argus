@@ -13,6 +13,7 @@ import secrets
 import subprocess
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -23,13 +24,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
-DEFAULT_TA = Path(r"D:\software development\trading\TradingAgents")
+DEFAULT_TA = Path(r"D:\software development\trading\TradingAgents") if os.name == "nt" else ROOT.parent / "TradingAgents"
 TA_ROOT = Path(os.environ.get("TRADINGAGENTS_ROOT", str(DEFAULT_TA))).resolve()
 DATA = TA_ROOT / "data"
 BOOK = DATA / "my_book.json"
@@ -50,7 +56,7 @@ SUBTHEME_ORDER = (
 )
 REPORTS_DIR = DATA / "logs" / "reports"
 FUND_DIR = DATA / "fund_manager"
-RUN_SCRIPT = TA_ROOT / "addons" / "fund_manager" / "run_portfolio.ps1"
+RUNNER = ROOT / "run_analysis.py"
 RUNS_DIR = Path(os.environ.get("DASHBOARD_RUNS_DIR", str(ROOT / "runs"))).resolve()
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -64,6 +70,10 @@ app = FastAPI(title="Argus", docs_url=None, redoc_url=None)
 # read it, and the host check below rejects a DNS-rebinding Host.
 CONFIRM_TOKEN = secrets.token_urlsafe(32)
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_BIND_HOST = os.environ.get("ARGUS_HOST", "127.0.0.1").strip()
+if _BIND_HOST in ("0.0.0.0", "::", ""):
+    raise RuntimeError("ARGUS_HOST must be a specific interface address; wildcard binding is disabled")
+_ALLOWED_HOSTS.add(_BIND_HOST.lower())
 
 
 class _LocalHostMiddleware(BaseHTTPMiddleware):
@@ -75,6 +85,12 @@ class _LocalHostMiddleware(BaseHTTPMiddleware):
             name = host.split(":")[0]
         if name not in _ALLOWED_HOSTS:
             return JSONResponse({"detail": "Host not allowed"}, status_code=400)
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            origin = request.headers.get("origin")
+            if origin:
+                expected = f"{request.url.scheme}://{host}"
+                if origin.rstrip("/").lower() != expected.lower():
+                    return JSONResponse({"detail": "Origin not allowed"}, status_code=403)
         return await call_next(request)
 
 
@@ -99,7 +115,40 @@ def _read_json(path: Path) -> Any:
 
 def _write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+@contextmanager
+def _data_write_lock():
+    """Coordinate short portfolio-data writes with the long-running analysis runner."""
+    path = DATA / ".argus-run.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as lock:
+        if os.name == "nt":
+            lock.seek(0)
+            if lock.read(1) == b"":
+                lock.write(b"0")
+                lock.flush()
+            lock.seek(0)
+            try:
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise HTTPException(409, "An analysis is running; try again after it finishes") from exc
+        else:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise HTTPException(409, "An analysis is running; try again after it finishes") from exc
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def _safe_ticker(t: str) -> str:
@@ -213,7 +262,7 @@ def _latest_fund_report() -> Optional[dict]:
 
 
 def _script_flags() -> dict[str, bool]:
-    """Detect which switches exist on run_portfolio.ps1 (e.g. -IncludeWatchlist)."""
+    """Capabilities of the Argus-owned native runner."""
     flags = {
         "RunAgents": True,
         "NoLLM": True,
@@ -227,9 +276,7 @@ def _script_flags() -> dict[str, bool]:
         "Model": True,
         "ReasoningEffort": True,
     }
-    if RUN_SCRIPT.exists():
-        text = RUN_SCRIPT.read_text(encoding="utf-8", errors="replace")
-        flags["IncludeWatchlist"] = bool(re.search(r"\$IncludeWatchlist\b", text))
+    flags["IncludeWatchlist"] = RUNNER.exists()
     return flags
 
 
@@ -294,14 +341,20 @@ def _load_run(run_id: str) -> dict:
     p = _run_meta_path(run_id)
     if not p.exists():
         raise HTTPException(404, f"Run not found: {run_id}")
-    return json.loads(p.read_text(encoding="utf-8"))
+    return _reconcile_run(json.loads(p.read_text(encoding="utf-8")))
 
 
 def _save_run(meta: dict) -> None:
     rid = meta["id"]
     d = RUNS_DIR / rid
     d.mkdir(parents=True, exist_ok=True)
-    _run_meta_path(rid).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    target = _run_meta_path(rid)
+    tmp = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(target)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _list_runs() -> list[dict]:
@@ -314,11 +367,48 @@ def _list_runs() -> list[dict]:
         mp = d / "meta.json"
         if mp.exists():
             try:
-                out.append(json.loads(mp.read_text(encoding="utf-8")))
+                out.append(_reconcile_run(json.loads(mp.read_text(encoding="utf-8"))))
             except Exception:
                 continue
     out.sort(key=lambda x: x.get("started_at") or "", reverse=True)
     return out
+
+
+def _reconcile_run(meta: dict) -> dict:
+    """After a web restart, retain a live child and mark an exited child interrupted."""
+    if meta.get("status") != "running":
+        return meta
+    result_path = RUNS_DIR / str(meta["id"]) / "result.json"
+    try:
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        result = None
+    if isinstance(result, dict) and result.get("status") in ("succeeded", "failed", "skipped"):
+        meta.update(result)
+        meta.setdefault("finished_at", datetime.now(timezone.utc).isoformat())
+        _save_run(meta)
+        return meta
+    if not meta.get("pid"):
+        return meta
+    pid = int(meta["pid"])
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        alive = False
+    else:
+        alive = True
+        if sys.platform.startswith("linux"):
+            try:
+                cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ")
+                alive = str(RUNNER).encode() in cmdline
+            except OSError:
+                alive = False
+    if not alive:
+        meta["status"] = "interrupted"
+        meta["finished_at"] = datetime.now(timezone.utc).isoformat()
+        meta["error"] = "Analysis process exited before completion was recorded; inspect its log before retrying."
+        _save_run(meta)
+    return meta
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +459,21 @@ class RunRequest(BaseModel):
     confirm: bool = False
 
 
+class TigerPreviewRequest(BaseModel):
+    account_key: str
+
+
+class TigerApplyRequest(BaseModel):
+    preview_id: str
+    confirm: bool = False
+    confirm_empty: bool = False
+    confirm_stock_only: bool = False
+
+
+_TIGER_ACCOUNTS: dict[str, dict[str, str]] = {}
+_TIGER_ACCOUNTS_LOCK = threading.Lock()
+
+
 # ---------------------------------------------------------------------------
 # Routes — meta / health
 # ---------------------------------------------------------------------------
@@ -380,7 +485,7 @@ def health():
         "app": "Argus",
         "tradingagents_root": str(TA_ROOT),
         "data_ok": BOOK.exists(),
-        "script_ok": RUN_SCRIPT.exists(),
+        "script_ok": RUNNER.exists(),
         "flags": _script_flags(),
     }
 
@@ -509,7 +614,9 @@ def _sleeve(ticker: str, info: dict | None) -> str:
 
 @app.get("/api/portfolio")
 def portfolio():
-    book = _read_json(BOOK)
+    # A missing book is a valid first-import state. Keep GET read-only; the
+    # Tiger replacement path creates it only after preview and confirmation.
+    book = _read_json(BOOK) if BOOK.exists() else {"cash": 0, "currency": "", "positions": []}
     targets = _read_json(TARGETS) if TARGETS.exists() else {"weights_pct": {}}
     stats = _latest_stats()
     price_map: dict[str, dict] = {}
@@ -662,58 +769,64 @@ def _watch_log(action: str, ticker: str, row: dict, reason: str = "") -> None:
 
 
 @app.post("/api/watchlist")
-def add_watchlist(item: WatchlistAdd):
-    ticker = _safe_ticker(item.ticker)
-    current = get_watchlist()["items"]
-    for it in current:
-        if str(it.get("ticker", "")).upper() == ticker:
-            raise HTTPException(409, f"{ticker} already on watchlist")
-    entry = {"ticker": ticker, "sector": item.sector.strip() or "Other", "type": item.type}
-    if item.sub_theme:
-        if item.sub_theme not in _subtheme_labels() and item.sub_theme not in SUBTHEME_ORDER:
-            raise HTTPException(400, f"Unknown sub_theme {item.sub_theme}")
-        entry["sub_theme"] = item.sub_theme
-    current.append(entry)
-    _write_json(WATCHLIST, current)
-    _watch_log("add", ticker, entry, "added in Argus")
-    return {"ok": True, "items": current}
+def add_watchlist(item: WatchlistAdd, request: Request):
+    _require_confirm_token(request)
+    with _data_write_lock():
+        ticker = _safe_ticker(item.ticker)
+        current = get_watchlist()["items"]
+        for it in current:
+            if str(it.get("ticker", "")).upper() == ticker:
+                raise HTTPException(409, f"{ticker} already on watchlist")
+        entry = {"ticker": ticker, "sector": item.sector.strip() or "Other", "type": item.type}
+        if item.sub_theme:
+            if item.sub_theme not in _subtheme_labels() and item.sub_theme not in SUBTHEME_ORDER:
+                raise HTTPException(400, f"Unknown sub_theme {item.sub_theme}")
+            entry["sub_theme"] = item.sub_theme
+        current.append(entry)
+        _write_json(WATCHLIST, current)
+        _watch_log("add", ticker, entry, "added in Argus")
+        return {"ok": True, "items": current}
 
 
 @app.delete("/api/watchlist/{ticker}")
-def remove_watchlist(ticker: str):
-    ticker = _safe_ticker(ticker)
-    if not WATCHLIST.exists():
-        raise HTTPException(404, "Watchlist empty")
-    current = get_watchlist()["items"]
-    removed = next((it for it in current if str(it.get("ticker", "")).upper() == ticker), None)
-    new = [it for it in current if str(it.get("ticker", "")).upper() != ticker]
-    if removed is None:
-        raise HTTPException(404, f"{ticker} not on watchlist")
-    _write_json(WATCHLIST, new)
-    _watch_log("drop", ticker, removed, "removed in Argus")
-    return {"ok": True, "items": new}
+def remove_watchlist(ticker: str, request: Request):
+    _require_confirm_token(request)
+    with _data_write_lock():
+        ticker = _safe_ticker(ticker)
+        if not WATCHLIST.exists():
+            raise HTTPException(404, "Watchlist empty")
+        current = get_watchlist()["items"]
+        removed = next((it for it in current if str(it.get("ticker", "")).upper() == ticker), None)
+        new = [it for it in current if str(it.get("ticker", "")).upper() != ticker]
+        if removed is None:
+            raise HTTPException(404, f"{ticker} not on watchlist")
+        _write_json(WATCHLIST, new)
+        _watch_log("drop", ticker, removed, "removed in Argus")
+        return {"ok": True, "items": new}
 
 
 @app.post("/api/watchlist/undo")
-def undo_watchlist():
-    import watchlist_log
-    events = watchlist_log.read_events(DATA)
-    event = watchlist_log.last_undoable(events)
-    if event is None:
-        raise HTTPException(404, "Nothing to undo")
-    current = get_watchlist()["items"] if WATCHLIST.exists() else []
-    updated = watchlist_log.undo_items(current, event)
-    _write_json(WATCHLIST, updated)
-    undone = watchlist_log.append_event(DATA, {
-        "as_of": datetime.now().strftime("%Y-%m-%d"),
-        "action": "undo",
-        "ticker": event.get("ticker"),
-        "reason": f"undo {event.get('action')}",
-        "source": "argus",
-        "undo_of": event.get("id"),
-        "row": event.get("row"),
-    })
-    return {"ok": True, "undone": undone, "items": updated}
+def undo_watchlist(request: Request):
+    _require_confirm_token(request)
+    with _data_write_lock():
+        import watchlist_log
+        events = watchlist_log.read_events(DATA)
+        event = watchlist_log.last_undoable(events)
+        if event is None:
+            raise HTTPException(404, "Nothing to undo")
+        current = get_watchlist()["items"] if WATCHLIST.exists() else []
+        updated = watchlist_log.undo_items(current, event)
+        _write_json(WATCHLIST, updated)
+        undone = watchlist_log.append_event(DATA, {
+            "as_of": datetime.now().strftime("%Y-%m-%d"),
+            "action": "undo",
+            "ticker": event.get("ticker"),
+            "reason": f"undo {event.get('action')}",
+            "source": "argus",
+            "undo_of": event.get("id"),
+            "row": event.get("row"),
+        })
+        return {"ok": True, "undone": undone, "items": updated}
 
 
 @app.get("/api/spend")
@@ -721,6 +834,104 @@ def spend():
     import cost_ledger
     targets = _read_json(TARGETS) if TARGETS.exists() else {}
     return cost_ledger.weekly_spend(DATA, datetime.now().date(), targets)
+
+
+@app.get("/api/tiger/accounts")
+def tiger_accounts():
+    """List authorized account aliases; never return account identifiers to the browser."""
+    from tiger_import import TigerImportError, oauth_trade_client, read_accounts
+    try:
+        records = read_accounts(oauth_trade_client())
+    except TigerImportError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, "Tiger account lookup failed; check OAuth authorization and retry") from exc
+    out = []
+    aliases: dict[str, dict[str, str]] = {}
+    for index, record in enumerate(records, 1):
+        key = secrets.token_urlsafe(18)
+        label = f"Account {index}"
+        aliases[key] = {**record, "label": label}
+        out.append({"account_key": key, "label": label,
+                    "account_type": record["type"], "status": record["status"]})
+    with _TIGER_ACCOUNTS_LOCK:
+        _TIGER_ACCOUNTS.clear()
+        _TIGER_ACCOUNTS.update(aliases)
+    return {"accounts": out}
+
+
+@app.post("/api/tiger/preview")
+def tiger_preview(body: TigerPreviewRequest, request: Request):
+    _require_confirm_token(request)
+    from tiger_import import (TigerImportError, book_version, normalize_snapshot,
+                              oauth_trade_client, read_snapshot)
+    with _TIGER_ACCOUNTS_LOCK:
+        account = _TIGER_ACCOUNTS.get(body.account_key)
+    if account is None:
+        raise HTTPException(400, "Refresh the Tiger account list and select an account")
+    try:
+        client = oauth_trade_client()
+        snapshot = read_snapshot(client, account["id"], account["type"])
+        normalized = normalize_snapshot(snapshot)
+    except TigerImportError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, "Tiger positions or assets query failed; no portfolio changes were made") from exc
+    preview_id = secrets.token_urlsafe(24)
+    record = {
+        "id": preview_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "book_version": book_version(BOOK),
+        "snapshot": normalized,
+    }
+    preview_dir = RUNS_DIR / "tiger-previews"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    (preview_dir / f"{preview_id}.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    return {"preview_id": preview_id, "created_at": record["created_at"],
+            "account_key": body.account_key, "account_label": account["label"],
+            "scope": normalized["scope"],
+            "fetched_at": normalized["fetched_at"], "currency": normalized["currency"],
+            "position_count": normalized["position_count"], "positions": normalized["book"]["positions"],
+            "cash": normalized["book"]["cash"], "rejected": normalized["rejected"],
+            "excluded": normalized["excluded"], "warnings": normalized["warnings"],
+            "issues": normalized["issues"], "can_apply": normalized["can_apply"],
+            "replaces_existing_positions": True,
+            "empty_positions_require_confirmation": not normalized["book"]["positions"]}
+
+
+@app.post("/api/tiger/apply")
+def tiger_apply(body: TigerApplyRequest, request: Request):
+    _require_confirm_token(request)
+    if not body.confirm:
+        raise HTTPException(400, "Set confirm=true after reviewing the replacement preview")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{20,80}", body.preview_id):
+        raise HTTPException(400, "Invalid preview id")
+    from tiger_import import TigerImportError, apply_replacement
+    preview_path = RUNS_DIR / "tiger-previews" / f"{body.preview_id}.json"
+    if not preview_path.is_file():
+        raise HTTPException(404, "Preview not found; fetch a fresh Tiger snapshot")
+    try:
+        record = json.loads(preview_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(400, "Preview is unreadable; fetch a fresh Tiger snapshot") from exc
+    created = datetime.fromisoformat(record["created_at"])
+    if (datetime.now(timezone.utc) - created).total_seconds() > 1800:
+        raise HTTPException(409, "Preview expired; fetch a fresh Tiger snapshot")
+    snapshot = record["snapshot"]
+    if snapshot.get("scope") == "stocks_only" and not body.confirm_stock_only:
+        raise HTTPException(400, "Confirm explicitly that this replacement imports stocks only")
+    if not snapshot.get("can_apply"):
+        raise HTTPException(400, {"message": "Snapshot contains unsupported or incomplete data", "issues": snapshot.get("issues"),
+                                  "rejected": snapshot.get("rejected")})
+    if not snapshot["book"]["positions"] and not body.confirm_empty:
+        raise HTTPException(400, "Confirm explicitly to replace the portfolio with zero positions")
+    try:
+        with _data_write_lock():
+            backup = apply_replacement(BOOK, snapshot["book"], record["book_version"])
+    except TigerImportError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "backup": backup.name if backup else None, "positions": len(snapshot["book"]["positions"]),
+            "currency": snapshot["book"]["currency"]}
 
 
 # ---------------------------------------------------------------------------
@@ -828,24 +1039,25 @@ def fund_manager_date(date: str):
 # ---------------------------------------------------------------------------
 
 def _spawn_run(meta: dict, args: list[str]) -> None:
-    """Background worker: run PowerShell script, stream stdout to log."""
+    """Background worker: run native pipeline, stream stdout to log."""
     rid = meta["id"]
     log_path = _run_log_path(rid)
     meta["status"] = "running"
     meta["pid"] = None
     _save_run(meta)
 
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
     try:
         with open(log_path, "w", encoding="utf-8", errors="replace") as log:
             log.write(f"# Argus run {rid}\n# cmd: {' '.join(args)}\n# started {meta['started_at']}\n\n")
             log.flush()
+            run_env = os.environ.copy()
+            run_env["ARGUS_RUN_RESULT_FILE"] = str(RUNS_DIR / rid / "result.json")
             proc = subprocess.Popen(
                 args,
                 cwd=str(TA_ROOT),
+                env=run_env,
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -855,7 +1067,7 @@ def _spawn_run(meta: dict, args: list[str]) -> None:
             _save_run(meta)
             code = proc.wait()
             meta["exit_code"] = code
-            meta["status"] = "succeeded" if code == 0 else "failed"
+            meta["status"] = "succeeded" if code == 0 else ("skipped" if code == 75 else "failed")
             meta["finished_at"] = datetime.now(timezone.utc).isoformat()
             _save_run(meta)
             log.write(f"\n# finished status={meta['status']} exit={code}\n")
@@ -898,7 +1110,7 @@ def runs_log_stream(run_id: str, from_byte: int = Query(0, ge=0)):
     data = log_path.read_bytes()
     chunk = data[from_byte:].decode("utf-8", errors="replace")
     meta = _load_run(run_id)
-    done = meta.get("status") in ("succeeded", "failed")
+    done = meta.get("status") in ("succeeded", "failed", "skipped", "interrupted")
     return {"offset": len(data), "chunk": chunk, "done": done, "status": meta.get("status")}
 
 
@@ -947,13 +1159,11 @@ def theme_scout_run(body: ScoutRequest, request: Request):
         raise HTTPException(400, "Set confirm=true after acknowledging the screen or the weekly Sol call")
     if body.mode not in ("screen", "weekly"):
         raise HTTPException(400, "mode must be screen or weekly")
-    if not SCOUT_SCRIPT.exists():
-        raise HTTPException(500, f"Theme scout script missing: {SCOUT_SCRIPT}")
-    args = ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(SCOUT_SCRIPT)]
-    if body.mode == "screen":
-        args.append("-Screen")
-    elif not body.include_llm:
-        args.append("-NoLLM")
+    if not RUNNER.exists():
+        raise HTTPException(500, f"Native runner missing: {RUNNER}")
+    args = [sys.executable, str(RUNNER), "--ta-root", str(TA_ROOT), "--scout-mode", body.mode]
+    if body.include_llm:
+        args.append("--scout-llm")
     est_min = 3 if body.mode == "screen" or not body.include_llm else 6
     rid = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
     meta = {
@@ -981,8 +1191,8 @@ def runs_start(body: RunRequest, request: Request):
     _require_confirm_token(request)
     if not body.confirm:
         raise HTTPException(400, "Set confirm=true after acknowledging cost/time warning")
-    if not RUN_SCRIPT.exists():
-        raise HTTPException(500, f"Run script missing: {RUN_SCRIPT}")
+    if not RUNNER.exists():
+        raise HTTPException(500, f"Native runner missing: {RUNNER}")
 
     flags = _script_flags()
     tickers = [_safe_ticker(t) for t in body.tickers] if body.tickers else []
@@ -996,35 +1206,29 @@ def runs_start(body: RunRequest, request: Request):
             n = 0
     # Observed per-ticker runs were about 2.5 minutes. The fund-manager step is 5 calls
     # (draft, three risk voices, final). The conservative voice is Opus.
-    est_min = int(round(n * 2.5)) if body.run_agents else (0 if body.no_llm else 9)
+    est_min = 0 if body.no_llm else (int(round(n * 2.5)) if body.run_agents else 9)
 
-    args = [
-        "powershell",
-        "-ExecutionPolicy", "Bypass",
-        "-File", str(RUN_SCRIPT),
-    ]
+    args = [sys.executable, str(RUNNER), "--ta-root", str(TA_ROOT)]
     if body.run_agents:
-        args.append("-RunAgents")
+        args.append("--run-agents")
     if body.no_llm:
-        args.append("-NoLLM")
+        args.append("--no-llm")
     if body.include_risk:
-        args.append("-IncludeRisk")
+        args.append("--include-risk")
     if body.no_macro:
-        args.append("-NoMacro")
+        args.append("--no-macro")
     if body.include_watchlist:
-        if not flags.get("IncludeWatchlist"):
-            raise HTTPException(400, "-IncludeWatchlist is not available on the current run script yet")
-        args.append("-IncludeWatchlist")
+        args.append("--include-watchlist")
     if body.analysis_date:
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.analysis_date):
             raise HTTPException(400, "analysis_date must be YYYY-MM-DD")
-        args.extend(["-AnalysisDate", body.analysis_date])
+        args.extend(["--analysis-date", body.analysis_date])
     if body.since:
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.since):
             raise HTTPException(400, "since must be YYYY-MM-DD")
-        args.extend(["-Since", body.since])
+        args.extend(["--since", body.since])
     if tickers:
-        args.extend(["-Tickers", ",".join(tickers)])
+        args.extend(["--tickers", *tickers])
 
     rid = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
     meta = {
@@ -1063,4 +1267,4 @@ app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("ARGUS_PORT", "8787"))
-    uvicorn.run(app, host="127.0.0.1", port=port)
+    uvicorn.run(app, host=_BIND_HOST, port=port)
