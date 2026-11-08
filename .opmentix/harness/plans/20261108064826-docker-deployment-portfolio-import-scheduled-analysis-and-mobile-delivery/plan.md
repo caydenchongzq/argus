@@ -116,9 +116,18 @@ Independent verifier pre-acceptance checks: `.venv/bin/python check_offline.py`,
 
 ## Acceptance
 
+Independent verifier: opmentix-verifier. Evidence audit completed after entry into Acceptance; prior offline checks and user-reported manual tests were reviewed without re-accessing the user's account.
+
+- Native Linux manual execution: passed offline runner, budget and dashboard checks and real TradingAgents isolated session-only preflight; user completed a free dashboard snapshot after the BRK-B mapping fix. Paid analysis is intentionally deferred to a later plan, not tested.
+- LAN access: user accessed the dashboard from Windows at 192.168.1.115:8787. Trusted LAN without login is the user's explicit choice; host and origin checks remain.
+- Tiger import: user authorized OAuth and applied a reviewed stock-only snapshot. Failed non-stock category queries are disclosed; unsupported/mixed-currency stocks and incomplete stock data block replacement. Singapore stock mapping remains unsupported and the user accepted the present stock-only scope. Verifier did not independently access the live account.
+- Persistence and recovery: temporary archive and restore passed SHA-256 comparison of 21 files, and restored portfolio and latest snapshot were readable. Partial: no durable off-VM backup destination or scheduled backup exists; record as follow-up rather than claiming it is configured.
+- Documentation and curation: project guide and README document current runtime, operation and Tiger setup. opmentix-curator confirmed no further durable update is required. Allocation target redesign is separate future work.
+
 
 ## Logs
 
+- 2026-11-08 16:25 UTC — Recorded independent acceptance evidence, partial backup status and agreed deferred work; curator confirmed guide current.
 - 2026-11-08 06:50 — Created discovery with repository research, source-backed options, preliminary architecture and unresolved decisions.
 - 2026-11-08 07:28 — Recorded Windows/VirtualBox deployment, deferred phone access, file persistence rationale and Tiger OAuth permissions research.
 - 2026-11-08 07:45 — Changed initial scope to development and operation in the existing environment with native Linux invocation; deferred containers and database.
