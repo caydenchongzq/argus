@@ -23,6 +23,8 @@ const state = {
   chart: null,
   bookTickers: [],
   pendingRun: null,
+  tigerPreview: null,
+  tigerPreviewRequestId: 0,
   pendingAgentSave: false,
   token: null,
   agentDoc: null,
@@ -433,6 +435,120 @@ function renderSubthemeRows(rows, withValue) {
   }).join("");
 }
 
+/* ---------- Tiger read-only import ---------- */
+function syncTigerApply() {
+  const preview = state.tigerPreview;
+  const empty = Boolean(preview && preview.positions.length === 0);
+  $("#tigerReplaceWrap").classList.toggle("hidden", !preview?.can_apply);
+  $("#tigerStockOnlyWrap").classList.toggle("hidden", !preview?.can_apply);
+  $("#tigerEmptyWrap").classList.toggle("hidden", !preview?.can_apply || !empty);
+  $("#tigerApply").disabled = !preview?.can_apply
+    || !$("#tigerReplace").checked
+    || !$("#tigerStockOnly").checked
+    || (empty && !$("#tigerEmpty").checked);
+}
+
+function renderTigerPreview(preview) {
+  const body = $("#tigerPreviewBody");
+  const rows = (preview.positions || []).map((p) => `<tr>
+    <td class="ar-ticker">${esc(p.ticker)}</td><td class="ar-num">${qty(p.quantity)}</td>
+    <td class="ar-num">${price(p.average_price)}</td></tr>`).join("");
+  const rejected = (preview.rejected || []).map((item) => `<li>${esc(item.market ? `${item.ticker || `Row ${item.row || "?"}`} [${item.market}]` : (item.ticker || `Row ${item.row || "?"}`))}: ${esc(item.reason)}</li>`).join("");
+  const excluded = (preview.excluded || []).map((item) => `<li>${esc(item.market ? `${item.ticker || `Row ${item.row || "?"}`} [${item.market}]` : (item.ticker || `Row ${item.row || "?"}`))}: ${esc(item.reason)}</li>`).join("");
+  const issues = (preview.issues || []).map((issue) => `<li>${esc(issue)}</li>`).join("");
+  const warnings = (preview.warnings || []).map((warning) => `<li>${esc(warning)}</li>`).join("");
+  body.innerHTML = `<p><strong>${esc(preview.account_label || "Selected account")}</strong> · Snapshot ${esc(preview.fetched_at || "time unavailable")} · ${preview.position_count} rows · ${preview.currency ? `currency ${esc(preview.currency)}` : "currency unavailable"} · cash ${esc(moneyLevel(preview.cash))}</p>
+    ${rows ? `<div class="ar-table-wrap"><table class="ar-table"><thead><tr><th>Ticker</th><th>Quantity</th><th>Average cost</th></tr></thead><tbody>${rows}</tbody></table></div>` : "<p>No supported positions in snapshot.</p>"}
+    ${warnings.length || excluded.length ? `<div class="ar-callout ar-callout--warn"><strong>Stock-only import scope</strong><ul>${warnings}${excluded}</ul></div>` : ""}
+    ${issues.length || rejected.length ? `<div class="ar-callout ar-callout--warn"><strong>Cannot apply this snapshot</strong><ul>${issues}${rejected}</ul></div>` : "<p class=\"ar-subtle\">All stock rows are supported.</p>"}`;
+  $("#tigerReplace").checked = false;
+  $("#tigerStockOnly").checked = false;
+  $("#tigerEmpty").checked = false;
+  syncTigerApply();
+}
+
+async function loadTigerAccounts() {
+  const select = $("#tigerAccount");
+  select.innerHTML = '<option value="">Loading authorized accounts…</option>';
+  try {
+    const data = await api("/api/tiger/accounts");
+    select.innerHTML = '<option value="">Select an account…</option>' + (data.accounts || []).map((a) =>
+      `<option value="${esc(a.account_key)}">${esc(a.label)} · ${esc(a.account_type)}${a.status ? ` · ${esc(a.status)}` : ""}</option>`).join("");
+    if (!data.accounts?.length) select.innerHTML = '<option value="">No authorized accounts</option>';
+  } catch (e) {
+    select.innerHTML = '<option value="">Could not load accounts</option>';
+    $("#tigerPreviewBody").textContent = e.message;
+  }
+}
+
+$("#tigerImportOpen").addEventListener("click", async () => {
+  state.tigerPreviewRequestId += 1;
+  state.tigerPreview = null;
+  $("#tigerPreviewBody").textContent = "Load an authorized Tiger account to preview positions.";
+  $("#tigerReplaceWrap").classList.add("hidden");
+  $("#tigerStockOnlyWrap").classList.add("hidden");
+  $("#tigerEmptyWrap").classList.add("hidden");
+  $("#tigerApply").disabled = true;
+  $("#tigerImportModal").showModal();
+  await loadTigerAccounts();
+});
+$("#tigerCancel").addEventListener("click", () => {
+  state.tigerPreviewRequestId += 1;
+  $("#tigerImportModal").close();
+});
+$("#tigerAccount").addEventListener("change", () => {
+  state.tigerPreviewRequestId += 1;
+  state.tigerPreview = null;
+  $("#tigerReplace").checked = false;
+  $("#tigerStockOnly").checked = false;
+  $("#tigerEmpty").checked = false;
+  $("#tigerPreviewBody").textContent = "Account changed. Fetch a new preview before applying.";
+  syncTigerApply();
+});
+$("#tigerReplace").addEventListener("change", syncTigerApply);
+$("#tigerStockOnly").addEventListener("change", syncTigerApply);
+$("#tigerEmpty").addEventListener("change", syncTigerApply);
+$("#tigerFetch").addEventListener("click", async () => {
+  const account_key = $("#tigerAccount").value;
+  if (!account_key) { showToast("Select an authorized Tiger account first.", "warn"); return; }
+  const requestId = ++state.tigerPreviewRequestId;
+  state.tigerPreview = null;
+  $("#tigerPreviewBody").textContent = "Fetching read-only positions and cash…";
+  $("#tigerApply").disabled = true;
+  try {
+    const preview = await api("/api/tiger/preview", { method: "POST", body: JSON.stringify({ account_key }) });
+    if (!globalThis.argusTigerPreviewIsCurrent(requestId, state.tigerPreviewRequestId, account_key,
+      $("#tigerAccount").value, preview.account_key, $("#tigerImportModal").open)) return;
+    state.tigerPreview = preview;
+    renderTigerPreview(preview);
+  } catch (e) {
+    if (!globalThis.argusTigerPreviewIsCurrent(requestId, state.tigerPreviewRequestId, account_key,
+      $("#tigerAccount").value, account_key, $("#tigerImportModal").open)) return;
+    $("#tigerPreviewBody").textContent = e.message;
+    showToast(e.message, "danger");
+  }
+});
+$("#tigerApply").addEventListener("click", async () => {
+  const preview = state.tigerPreview;
+  if (!preview || !$("#tigerReplace").checked) return;
+  if (!$("#tigerStockOnly").checked) return;
+  if (preview.positions.length === 0 && !$("#tigerEmpty").checked) return;
+  const button = $("#tigerApply");
+  button.disabled = true;
+  try {
+    const result = await api("/api/tiger/apply", { method: "POST", body: JSON.stringify({
+      preview_id: preview.preview_id, confirm: true, confirm_empty: $("#tigerEmpty").checked,
+      confirm_stock_only: true,
+    }) });
+    $("#tigerImportModal").close();
+    showToast(result.backup ? `Portfolio replaced. Backup saved as ${result.backup}.` : "Portfolio created from the reviewed Tiger snapshot.", "ok");
+    await loadPortfolio();
+  } catch (e) {
+    showToast(e.message, "danger");
+    syncTigerApply();
+  }
+});
+
 /* ---------- watchlist ---------- */
 async function loadWatchlist() {
   const data = await api("/api/watchlist");
@@ -665,12 +781,18 @@ function selectedTickers() {
 
 function updateRunWarn() {
   const agents = $("#optRunAgents").checked;
+  const watchAgents = $("#optWatchlist").checked;
   const nollm = $("#optNoLLM").checked;
-  const n = selectedTickers().length || (agents ? state.bookTickers.length : 0);
+  const selected = selectedTickers();
+  const hasSelection = selected.length > 0;
+  const selectedSet = new Set(selected);
+  const bookCount = hasSelection ? state.bookTickers.filter((t) => selectedSet.has(t)).length : state.bookTickers.length;
+  const watchCount = hasSelection ? state.watchlist.filter((w) => selectedSet.has(w.ticker)).length : state.watchlist.length;
+  const n = (agents ? bookCount : 0) + (watchAgents ? watchCount : 0);
   let msg;
-  if (nollm && !agents) {
-    msg = "Snapshot only (-NoLLM): no model call, free, usually under a minute.";
-  } else if (agents) {
+  if (nollm) {
+    msg = "Snapshot only (-NoLLM): no model calls, free, usually under a minute. Watchlist agent runs are also suppressed.";
+  } else if (n > 0) {
     msg = `Agent runs: ~${n} ticker(s) × ~2.5 min ≈ ${Math.round(n * 2.5)} minutes, plus OpenRouter fees. The fund manager step after that is 5 calls.`;
   } else {
     msg = "Fund manager only: 5 calls (draft, aggressive, conservative, neutral, final), about 9 minutes. Conservative is Opus; neutral is Luna. The last committee with that Opus seat was about $1.20.";
@@ -678,7 +800,7 @@ function updateRunWarn() {
   $("#runWarnText").textContent = msg;
 }
 
-["optRunAgents", "optNoLLM"].forEach((id) => $(`#${id}`).addEventListener("change", updateRunWarn));
+["optRunAgents", "optNoLLM", "optWatchlist"].forEach((id) => $(`#${id}`).addEventListener("change", updateRunWarn));
 
 $("#selBook").addEventListener("click", () => {
   $$("#tickerGrid input").forEach((i) => {
@@ -793,10 +915,13 @@ $("#btnStartRun").addEventListener("click", () => {
     tickers: selectedTickers(),
     confirm: false,
   };
-  const n = body.tickers.length || (body.run_agents ? state.bookTickers.length : 0);
+  const selected = body.tickers.length ? new Set(body.tickers) : null;
+  const countMatching = (values) => selected ? values.filter((v) => selected.has(v)).length : values.length;
+  const n = (body.run_agents ? countMatching(state.bookTickers) : 0)
+    + (body.include_watchlist ? countMatching(state.watchlist.map((w) => w.ticker)) : 0);
   let est;
-  if (body.no_llm && !body.run_agents) est = "under ~1 min, free";
-  else if (body.run_agents) est = `~${Math.round(n * 2.5)} min + model fees, then 5 fund-manager calls`;
+  if (body.no_llm) est = "under ~1 min, free (all model stages suppressed)";
+  else if (n) est = `~${Math.round(n * 2.5)} min + model fees, then 5 fund-manager calls`;
   else est = "~9 min, 5 model calls (Opus for conservative, Luna for neutral)";
   state.pendingTheme = null;
   state.pendingRemove = null;
@@ -810,7 +935,7 @@ function isPendingPaid() {
   if (state.pendingTheme) return state.pendingTheme.mode === "weekly" && !!state.pendingTheme.include_llm;
   const b = state.pendingRun;
   if (!b) return false;
-  return !(b.no_llm && !b.run_agents);
+  return !b.no_llm;
 }
 
 function setConfirmButton(label, variant, icon) {
