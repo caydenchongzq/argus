@@ -15,6 +15,9 @@ import sys
 import traceback
 from datetime import date, datetime, timezone
 from pathlib import Path
+import importlib
+
+from run_inputs import fingerprint as _fingerprint_run_inputs
 
 ROOT = Path(__file__).resolve().parent
 
@@ -58,7 +61,8 @@ def _tickers(book_path: Path, watch_path: Path, selected: list[str], include_wat
     if include_watchlist and watch_path.exists():
         raw = json.loads(watch_path.read_text(encoding="utf-8"))
         if isinstance(raw, dict):
-            raw = raw.get("items") or raw.get("tickers") or raw.get("candidates") or []
+            raw = next((raw.get(key) for key in ("items", "candidates", "watchlist", "tickers")
+                        if isinstance(raw.get(key), list)), [])
         watch = list(dict.fromkeys(str(p if isinstance(p, str) else p.get("ticker", "")).strip().upper()
                                      for p in raw if (p if isinstance(p, str) else p.get("ticker"))))
         # A held symbol is already covered by the holdings run, even when no
@@ -117,10 +121,13 @@ def _check_ta_runtime(python: str, ta: Path, env: dict[str, str]) -> bool:
 def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ta-root", required=True, type=Path)
+    ap.add_argument("--data-root", type=Path, default=None,
+                    help="portfolio data directory (defaults to FM_DATA_ROOT or <ta-root>/data)")
     ap.add_argument("--analysis-date", default="")
     ap.add_argument("--since", default="")
     ap.add_argument("--tickers", nargs="*", default=[])
     ap.add_argument("--run-agents", action="store_true")
+    ap.add_argument("--anl-only", action="store_true", help="run selected ticker analyses and stop before portfolio review")
     ap.add_argument("--include-watchlist", action="store_true")
     ap.add_argument("--no-watchlist", action="store_true")
     ap.add_argument("--no-llm", action="store_true")
@@ -128,14 +135,25 @@ def _main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-macro", action="store_true")
     ap.add_argument("--scout-mode", choices=["screen", "weekly"])
     ap.add_argument("--scout-llm", action="store_true")
+    ap.add_argument("--scout-sectors", nargs="*", default=[])
+    ap.add_argument("--scout-single-call", action="store_true",
+                    help="disable automatic scout model retries for an explicitly reviewed one-call run")
+    ap.add_argument("--manifest-input-fingerprint", default="",
+                    help="expected portfolio and model-input fingerprint from the reviewed manifest")
+    ap.add_argument("--manifest-analysis-tickers-json", default="",
+                    help="expected selected ticker execution scope from the reviewed manifest")
     args = ap.parse_args(argv)
+    if args.anl_only and args.no_llm:
+        ap.error("--anl-only requires paid ticker analysis and cannot be combined with --no-llm")
+    if args.anl_only and not args.tickers:
+        ap.error("--anl-only requires explicit --tickers")
 
     ta = args.ta_root.resolve()
     default_python = ta / (".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python")
     python = os.environ.get("TRADINGAGENTS_PYTHON") or (str(default_python) if default_python.is_file() else sys.executable)
     addons = ta / "addons"
     fm = addons / "fund_manager"
-    root = Path(os.environ.get("FM_DATA_ROOT", str(ta / "data"))).resolve()
+    root = (args.data_root or Path(os.environ.get("FM_DATA_ROOT", str(ta / "data")))).resolve()
     lock_path = root / ".argus-run.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+") as lock:
@@ -160,6 +178,27 @@ def _main(argv: list[str] | None = None) -> int:
             "TRADINGAGENTS_CACHE_DIR": str(root / "cache"),
             "TZ": "EST5EDT,M3.2.0,M11.1.0",
         })
+        if args.manifest_input_fingerprint:
+            addon_path = str(addons)
+            if addon_path not in sys.path:
+                sys.path.insert(0, addon_path)
+            try:
+                agent_config = importlib.import_module("agent_config")
+                input_hash = _fingerprint_run_inputs(root, ta, {
+                    "agent_config": Path(agent_config.config_path()),
+                    "model_rates": Path(agent_config.models_path()),
+                })["sha256"]
+            except Exception as exc:
+                print(f"RUN_MANIFEST_INVALID=agent configuration unavailable: {exc}", flush=True)
+                return 78
+            if input_hash != args.manifest_input_fingerprint:
+                print("RUN_MANIFEST_INVALID=portfolio inputs or model configuration changed after review", flush=True)
+                _set_run_state("failed", exit_code=78,
+                               error="portfolio inputs or model configuration changed after review")
+                return 78
+            if not args.scout_mode and not args.manifest_analysis_tickers_json:
+                print("RUN_MANIFEST_INVALID=expected ticker scope is missing", flush=True)
+                return 78
         if not _check_ta_runtime(python, ta, env):
             _set_run_state("failed", exit_code=78, error="TradingAgents runtime dependencies missing")
             return 78
@@ -178,10 +217,17 @@ def _main(argv: list[str] | None = None) -> int:
             scout = addons / "theme_scout" / "theme_scout.py"
             command = _script_command(python, ta, scout, "--data-root", str(root), "--date", day,
                                       "--themes", str(fm / "themes.json"))
+            if args.scout_sectors:
+                command.extend(["--sectors", *args.scout_sectors])
             if args.scout_mode == "screen":
                 command.append("--screen")
             elif not args.scout_llm:
                 command.append("--no-llm")
+            if args.scout_single_call:
+                if args.scout_mode != "weekly" or not args.scout_llm:
+                    print("RUN_MANIFEST_INVALID=single-call is valid only for paid weekly scout", flush=True)
+                    return 78
+                command.append("--single-call")
             code, _ = _run(command, cwd=ta, env=env, label="theme_scout")
             return code
 
@@ -190,15 +236,49 @@ def _main(argv: list[str] | None = None) -> int:
             print(f"Portfolio book missing: {book_path}", flush=True)
             return 2
         watch_path = root / "watchlist.json"
+        agent_holdings, agent_candidates = _tickers(book_path, watch_path, args.tickers,
+                                                      not args.no_watchlist)
+        agent_tickers = list(dict.fromkeys(
+            (agent_holdings if args.run_agents else [])
+            + (agent_candidates if args.include_watchlist else [])
+        ))
+        if args.anl_only and not agent_tickers:
+            print("ANL-only selected scope contains no eligible tickers", flush=True)
+            return 2
+        if args.manifest_analysis_tickers_json:
+            if args.no_llm:
+                actual_tickers = []
+            else:
+                actual_tickers = agent_tickers
+            try:
+                expected_tickers = json.loads(args.manifest_analysis_tickers_json)
+                if not isinstance(expected_tickers, list) or any(not isinstance(t, str) for t in expected_tickers):
+                    raise ValueError("expected ticker scope must be a JSON list of strings")
+            except (json.JSONDecodeError, ValueError) as exc:
+                print(f"RUN_MANIFEST_INVALID=invalid ticker scope: {exc}", flush=True)
+                return 78
+            if actual_tickers != expected_tickers:
+                print("RUN_MANIFEST_INVALID=selected ticker scope changed after review", flush=True)
+                _set_run_state("failed", exit_code=78,
+                               error="selected ticker scope changed after review")
+                return 78
         if not watch_path.exists():
             watch_path.write_text("[]\n", encoding="utf-8")
-        if not (root / "targets.json").exists() and (fm / "targets.json").exists():
-            (root / "targets.json").write_text((fm / "targets.json").read_text(encoding="utf-8"), encoding="utf-8")
+        # Owner policy is user data. Never seed it from the example template;
+        # the fund manager treats absent targets as no approved allocation mandate.
 
         # Preflight the full book and every watchlist row the fund manager may consume.
         # The ticker filter narrows native per-ticker analyses only.
-        holdings, candidates = _tickers(book_path, watch_path, [], not args.no_watchlist)
-        all_tickers = list(dict.fromkeys(holdings + candidates))
+        if args.anl_only:
+            selected_holdings, selected_candidates = _tickers(book_path, watch_path, args.tickers,
+                                                               not args.no_watchlist)
+            all_tickers = list(dict.fromkeys(
+                (selected_holdings if args.run_agents else [])
+                + (selected_candidates if args.include_watchlist else [])
+            ))
+        else:
+            holdings, candidates = _tickers(book_path, watch_path, [], not args.no_watchlist)
+            all_tickers = list(dict.fromkeys(holdings + candidates))
         if not all_tickers:
             print("No tickers to preflight", flush=True)
             return 2
@@ -222,13 +302,28 @@ def _main(argv: list[str] | None = None) -> int:
             day = date.today().isoformat()
 
         native_failed = []
+        if not run_native_agents:
+            agent_tickers = []
+        if args.anl_only and not agent_tickers:
+            print("ANL-only selected scope contains no eligible tickers", flush=True)
+            return 2
+
+        if not args.no_llm:
+            try:
+                targets = json.loads((root / "targets.json").read_text(encoding="utf-8")) if (root / "targets.json").is_file() else {}
+            except json.JSONDecodeError:
+                print("Could not read budget policy; stopping before paid stages", flush=True)
+                return 2
+            policy = targets.get("budget") or {}
+            native_estimate = float(policy.get("native_run_estimate_usd", 2.0))
+            fm_estimate = float(policy.get("fund_manager_estimate_usd", 1.5))
+            planned_estimate = len(agent_tickers) * native_estimate + (0 if args.anl_only else fm_estimate)
+            code = _budget(python, addons, root, budget_day, "manifest", ta, env, planned_estimate)
+            if code:
+                print("RUN_MANIFEST_BUDGET_BLOCKED=1; no paid stage was started", flush=True)
+                return code
+
         if run_native_agents:
-            agent_holdings, agent_candidates = _tickers(book_path, watch_path, args.tickers,
-                                                          not args.no_watchlist)
-            agent_tickers = list(dict.fromkeys(
-                (agent_holdings if args.run_agents else [])
-                + (agent_candidates if args.include_watchlist else [])
-            ))
             for ticker in agent_tickers:
                 code = _budget(python, addons, root, budget_day, "native", ta, env)
                 if code:
@@ -239,6 +334,17 @@ def _main(argv: list[str] | None = None) -> int:
                 code, _ = _run(native, cwd=ta, env=env, label=f"native:{ticker}")
                 if code:
                     native_failed.append(ticker)
+
+            if native_failed:
+                # A portfolio review must not present itself as complete when
+                # one of its explicitly selected ticker analyses failed.
+                print("Native analyses failed; stopping before fund manager: "
+                      + ", ".join(native_failed), flush=True)
+                return 1
+
+        if args.anl_only:
+            print("ANL_ONLY_COMPLETE=" + ",".join(args.tickers), flush=True)
+            return 0
 
         fm_args = _script_command(python, ta, fm / "fund_manager.py", "--date", day,
                                   "--book", str(book_path), "--targets", str(root / "targets.json"),

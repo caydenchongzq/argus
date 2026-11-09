@@ -69,7 +69,7 @@
               <table class="ar-table" id="pfTable">
                 <thead>
                   <tr>
-                    <th>Ticker</th><th>Name</th><th>Sub-theme</th><th>Sleeve</th>
+                    <th>Ticker</th><th>Name</th><th>Sub-theme</th><th>Instrument</th><th>Analysis sleeve</th>
                     <th class="ar-num">Qty</th><th class="ar-num">Avg (USD)</th><th class="ar-num">Price (USD)</th>
                     <th class="ar-num">Value (USD)</th><th class="ar-num">P&amp;L</th>
                     <th class="ar-num">Weight</th><th class="ar-num">Target</th>
@@ -80,7 +80,7 @@
             </div>
           </section>
           <section class="ar-card ar-span-4">
-            <div class="ar-card__header"><h2 class="ar-card__title">Current vs target</h2></div>
+          <div class="ar-card__header"><h2 class="ar-card__title">Current vs approved targets</h2></div>
             <div class="ar-card__body"><div class="ar-chart"><canvas id="weightsChart"></canvas></div></div>
           </section>
         </div>
@@ -107,6 +107,19 @@
             <p class="ar-muted">Candidates outside the book. Edits <span class="ar-code-inline">data/watchlist.json</span> and appends the change log.</p>
           </div>
         </div>
+        <section class="ar-card ar-card--flush" id="wlProposalCard">
+          <div class="ar-card__header"><h2 class="ar-card__title">Scout proposal review</h2><span class="ar-subtle" id="wlProposalStatus">—</span></div>
+          <div class="ar-card__body ar-stack">
+            <p class="ar-subtle" id="wlProposalReason">No scout proposal is available.</p>
+            <div class="ar-table-wrap">
+              <table class="ar-table" id="wlProposalTable">
+                <thead><tr><th>Review</th><th>Change</th><th>Ticker</th><th>Sector</th><th>Instrument</th><th>Reason</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <button class="ar-btn ar-btn--primary" id="wlProposalApply" type="button" disabled>Apply selected changes</button>
+          </div>
+        </section>
         <section class="ar-card">
           <div class="ar-card__header"><h2 class="ar-card__title">Add a candidate</h2></div>
           <div class="ar-card__body ar-stack">
@@ -161,10 +174,10 @@
           </div>
         </section>
         <section class="ar-card ar-card--flush">
-          <div class="ar-card__header"><h2 class="ar-card__title">Candidates</h2></div>
+          <div class="ar-card__header"><h2 class="ar-card__title">Holdings and candidates</h2></div>
           <div class="ar-table-wrap">
             <table class="ar-table" id="wlTable">
-              <thead><tr><th>Ticker</th><th>Sector</th><th>Type</th><th>Sub-theme</th><th class="ar-num"><span class="ar-sr-only">Remove</span></th></tr></thead>
+              <thead><tr><th>Ticker</th><th>Origin</th><th>Sector</th><th>Instrument</th><th>Analysis sleeve</th><th>Sub-theme</th><th class="ar-num"><span class="ar-sr-only">Remove candidate</span></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -257,10 +270,24 @@
                 <span class="ar-btn__label">Weekly scout</span>
               </button>
             </div>
-            <label class="ar-check"><input type="checkbox" id="optScoutLlm" /> Include the Sol call (about $0.10–$0.30). Leave this off for a free pack that does not edit the watchlist.</label>
+            <div class="ar-stack">
+              <span class="ar-label">Discovery sectors (choose up to eight)</span>
+              <div class="ar-row" id="scoutSectors">
+                <label class="ar-check"><input type="checkbox" data-scout-sector="XLK" checked /> Information Technology (XLK)</label>
+                <label class="ar-check"><input type="checkbox" data-scout-sector="XLY" checked /> Consumer Cyclical (XLY)</label>
+                <label class="ar-check"><input type="checkbox" data-scout-sector="XLV" checked /> Healthcare (XLV)</label>
+                <label class="ar-check"><input type="checkbox" data-scout-sector="XLP" checked /> Consumer Defensive (XLP)</label>
+                <label class="ar-check"><input type="checkbox" data-scout-sector="XLU" checked /> Utilities (XLU)</label>
+                <label class="ar-check"><input type="checkbox" data-scout-sector="XLE" checked /> Energy (XLE)</label>
+                <label class="ar-check"><input type="checkbox" data-scout-sector="XLF" checked /> Financial Services (XLF)</label>
+                <label class="ar-check"><input type="checkbox" data-scout-sector="SMH" checked /> Semiconductors (SMH)</label>
+              </div>
+              <span class="ar-subtle" id="scoutSectorCount">8 of 8 selected</span>
+            </div>
+            <label class="ar-check"><input type="checkbox" id="optScoutLlm" /> Include one paid call using the configured scout model. The model and any available estimate are shown before confirmation. Suggestions require a separate review and apply step.</label>
             <div class="ar-alert ar-alert--warn" id="themeWarn" role="status">
               <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#triangle-alert"/></svg>
-              <div class="ar-alert__body">The daily screen is free. The weekly Sol call is the paid step, and it can add or drop watchlist names after a backup.</div>
+              <div class="ar-alert__body">The screen is free. A weekly scout call uses the configured model and is paid; it only creates a proposal. Argus checks freshness and held-name protections before applying selected changes.</div>
             </div>
           </div>
         </section>
@@ -310,12 +337,31 @@
             <p class="ar-subtle" id="runSpend">Weekly spend —</p>
           </div>
         </div>
+        <section class="ar-card ar-card--flush ar-run-guide" aria-labelledby="runGuideTitle">
+          <div class="ar-card__header">
+            <div><h2 class="ar-card__title" id="runGuideTitle">Run scenarios</h2><p class="ar-subtle">Choose a routine. Paid actions open the usual preview and confirmation first.</p></div>
+          </div>
+          <div class="ar-table-wrap">
+            <table class="ar-table">
+              <thead><tr><th>When</th><th>Scenario</th><th>Purpose</th><th>Cost / note</th><th>Run</th></tr></thead>
+              <tbody>
+                <tr><td>Daily</td><td><strong>Refresh snapshot</strong></td><td>Update portfolio prices and calculated values without model calls.</td><td>Free · no AI review</td><td><button type="button" class="ar-btn ar-btn--sm" data-run-scenario="snapshot"><span class="ar-btn__label">Run snapshot</span></button></td></tr>
+                <tr><td>Daily or as needed</td><td><strong>Free market screen</strong></td><td>See relative strength and price setup across discovery sectors.</td><td>Free · does not edit watchlist</td><td><button type="button" class="ar-btn ar-btn--sm" data-run-scenario="screen"><span class="ar-btn__label">Run screen</span></button></td></tr>
+                <tr><td>Weekly</td><td><strong>Scout watchlist ideas</strong></td><td>Ask the scout model for sector ideas; review its proposal before applying changes.</td><td>One paid model call · estimate shown before confirmation</td><td><button type="button" class="ar-btn ar-btn--sm" data-run-scenario="scout"><span class="ar-btn__label">Run scout</span></button></td></tr>
+                <tr><td>Weekly</td><td><strong>Analyze selected tickers</strong></td><td>Run ticker research only for names you select below; skips portfolio review.</td><td>Paid per ticker · selection required</td><td><button type="button" class="ar-btn ar-btn--sm" data-run-scenario="analyze"><span class="ar-btn__label">Analyze selection</span></button></td></tr>
+                <tr><td>As needed</td><td><strong>Analyze, then review portfolio</strong></td><td>Refresh selected ticker reports, then ask the fund manager to review the whole portfolio.</td><td>Paid per ticker plus fund-manager calls · selection required</td><td><button type="button" class="ar-btn ar-btn--sm" data-run-scenario="analyze-review"><span class="ar-btn__label">Analyze + review</span></button></td></tr>
+                <tr><td>After reports refresh</td><td><strong>Fund-manager review</strong></td><td>Review the portfolio using existing ticker reports and current holdings.</td><td>Paid · 5 calls · scope and estimate shown before confirmation</td><td><button type="button" class="ar-btn ar-btn--sm ar-btn--primary" data-run-scenario="fund"><span class="ar-btn__label">Run review</span></button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
         <div class="ar-grid">
           <section class="ar-card ar-span-7">
             <div class="ar-card__header"><h2 class="ar-card__title">New run</h2></div>
             <div class="ar-card__body ar-stack">
               <div class="ar-row">
                 <label class="ar-check"><input type="checkbox" id="optRunAgents" /> Run agents first (-RunAgents)</label>
+                <label class="ar-check"><input type="checkbox" id="optAnlOnly" /> Ticker analyses only (ANL; skip portfolio review)</label>
                 <label class="ar-check"><input type="checkbox" id="optNoLLM" /> Snapshot only (-NoLLM, free)</label>
                 <label class="ar-check"><input type="checkbox" id="optRisk" /> Include risk notes</label>
                 <label class="ar-check"><input type="checkbox" id="optNoMacro" /> No macro</label>
@@ -381,6 +427,20 @@
             <p class="ar-muted">Models and role prompts for the next run. Saved to <span class="ar-code-inline">addons/agent_config.json</span>. This page does not call a model.</p>
           </div>
         </div>
+        <section class="ar-card" aria-labelledby="policySettingsTitle">
+          <div class="ar-card__header"><h2 class="ar-card__title" id="policySettingsTitle">Watchlist and spending settings</h2></div>
+          <div class="ar-card__body ar-stack">
+            <p class="ar-muted">These settings limit new saved candidates and paid-run checks. Held positions always remain visible. Lowering a limit does not remove existing candidates.</p>
+            <div class="ar-grid">
+              <label class="ar-check"><input type="checkbox" id="settingsBudgetEnabled" /> Enforce weekly spending check</label>
+              <label class="ar-field"><span class="ar-label">Weekly amount (USD)</span><input class="ar-input" id="settingsBudgetUsd" type="number" min="0" max="1000000" step="0.01" /></label>
+              <label class="ar-field"><span class="ar-label">Saved candidates total (blank = unlimited)</span><input class="ar-input" id="settingsMaxCandidates" type="number" min="1" max="10000" step="1" /></label>
+              <label class="ar-field"><span class="ar-label">Stocks per sector (blank = unlimited)</span><input class="ar-input" id="settingsMaxSector" type="number" min="1" max="1000" step="1" /></label>
+            </div>
+            <p class="ar-subtle" id="settingsStatus" role="status">Loading settings…</p>
+            <div><button type="button" class="ar-btn ar-btn--primary" id="settingsSave">Save policy settings</button></div>
+          </div>
+        </section>
         <div class="ar-agents__toolbar">
           <label class="ar-field ar-agents__search">
             <span class="ar-label">Search</span>

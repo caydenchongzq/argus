@@ -6,6 +6,8 @@ Binds to 127.0.0.1 only. Never exposes .env values.
 from __future__ import annotations
 
 import json
+import math
+import hashlib
 import os
 import re
 import sys
@@ -46,6 +48,7 @@ ADDONS = TA_ROOT / "addons"
 if str(ADDONS) not in sys.path:
     sys.path.insert(0, str(ADDONS))
 import agent_config  # noqa: E402
+from run_inputs import fingerprint as _fingerprint_run_inputs  # noqa: E402
 SUBTHEME_ORDER = (
     "ai_energy",
     "ai_memory_storage",
@@ -64,6 +67,16 @@ RATING_RE = re.compile(r"(?im)^-\s*Rating:\s*(.+?)\s*$")
 REPORT_DIR_RE = re.compile(r"^(.+)_(\d{8})_(\d{6})$")
 
 app = FastAPI(title="Argus", docs_url=None, redoc_url=None)
+
+DEFAULT_MAX_CANDIDATES = 100
+DEFAULT_MAX_STOCKS_PER_SECTOR = 10
+
+
+@app.on_event("startup")
+def recover_watchlist_transaction_on_startup():
+    if _watchlist_txn_path().is_file():
+        with _data_write_lock():
+            _recover_watchlist_transaction()
 
 # Per-process confirm token. The page reads it from GET /api/session (same origin only)
 # and must send it back as X-Argus-Confirm on POST /api/runs. A foreign page cannot
@@ -120,6 +133,54 @@ def _write_json(path: Path, data: Any) -> None:
     tmp.replace(path)
 
 
+def _write_watchlist_items(items: list[dict]) -> None:
+    """Replace rows while retaining an existing JSON wrapper and its metadata."""
+    payload: Any = items
+    if WATCHLIST.is_file():
+        raw = _read_json(WATCHLIST)
+        if isinstance(raw, dict):
+            key = next((name for name in ("items", "candidates", "watchlist", "tickers")
+                        if isinstance(raw.get(name), list)), "items")
+            payload = {**raw, key: items}
+    _write_json(WATCHLIST, payload)
+
+
+def _watchlist_txn_path() -> Path:
+    return DATA / ".watchlist_transaction.json"
+
+
+def _recover_watchlist_transaction() -> None:
+    """Finish a prepared watchlist replacement and its event group after a crash."""
+    journal = _watchlist_txn_path()
+    if not journal.is_file():
+        return
+    state = _read_json(journal)
+    current = _saved_watchlist_items()
+    encode = lambda rows: json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    current_state = encode(current)
+    before_state = encode(state["before"])
+    after_state = encode(state["after"])
+    if current_state not in {before_state, after_state}:
+        raise HTTPException(409, "A pending watchlist transaction conflicts with the saved list; resolve it before making changes")
+    if current_state == before_state:
+        _write_watchlist_items(state["after"])
+    import watchlist_log
+    events = watchlist_log.read_events(DATA)
+    present = {(row.get("transaction_id"), row.get("transaction_index")) for row in events}
+    for index, event in enumerate(state.get("events") or []):
+        key = (state["transaction_id"], index)
+        if key in present:
+            continue
+        watchlist_log.append_event(DATA, {**event, "transaction_id": key[0], "transaction_index": index})
+    journal.unlink(missing_ok=True)
+
+
+def _commit_watchlist_transaction(before: list[dict], after: list[dict], events: list[dict], transaction_id: str) -> None:
+    _write_json(_watchlist_txn_path(), {"transaction_id": transaction_id, "before": before,
+                                       "after": after, "events": events})
+    _recover_watchlist_transaction()
+
+
 @contextmanager
 def _data_write_lock():
     """Coordinate short portfolio-data writes with the long-running analysis runner."""
@@ -142,6 +203,7 @@ def _data_write_lock():
             except BlockingIOError as exc:
                 raise HTTPException(409, "An analysis is running; try again after it finishes") from exc
         try:
+            _recover_watchlist_transaction()
             yield
         finally:
             if os.name == "nt":
@@ -432,6 +494,18 @@ class ScoutRequest(BaseModel):
     mode: str = "screen"  # screen | weekly
     include_llm: bool = False
     confirm: bool = False
+    sectors: list[str] = Field(default_factory=list)
+    single_call: bool = False
+    manifest_sha256: str = ""
+
+
+class WatchlistProposalApply(BaseModel):
+    date: str
+    base_watchlist_version: str
+    proposal_sha256: str
+    add: list[str] = Field(default_factory=list)
+    drop: list[str] = Field(default_factory=list)
+    confirm: bool = False
 
 
 class AgentSeatIn(BaseModel):
@@ -447,8 +521,18 @@ class AgentConfigIn(BaseModel):
     unlock: list[str] = Field(default_factory=list)
 
 
+class DashboardSettingsIn(BaseModel):
+    weekly_budget_enabled: bool = False
+    weekly_budget_usd: float = Field(ge=0, le=1_000_000)
+    max_adds_per_week: int | None = Field(default=None, ge=1, le=10_000)
+    max_drops_per_week: int | None = Field(default=None, ge=1, le=10_000)
+    max_candidates: int | None = Field(default=None, ge=1, le=10_000)
+    max_stocks_per_sector: int | None = Field(default=None, ge=1, le=1000)
+
+
 class RunRequest(BaseModel):
     run_agents: bool = False
+    analysis_only: bool = False
     no_llm: bool = False
     include_risk: bool = False
     no_macro: bool = False
@@ -456,6 +540,7 @@ class RunRequest(BaseModel):
     analysis_date: str = ""
     since: str = ""
     tickers: list[str] = Field(default_factory=list)
+    manifest_sha256: str = ""
     confirm: bool = False
 
 
@@ -507,6 +592,55 @@ def session():
     return {"token": CONFIRM_TOKEN, "header": "X-Argus-Confirm"}
 
 
+def _dashboard_settings(targets: dict | None = None) -> dict:
+    if targets is None:
+        targets = _read_json(TARGETS) if TARGETS.is_file() else {}
+    raw_watch = targets.get("watchlist_curator") or {}
+    raw_budget = targets.get("budget") or {}
+    import cost_ledger
+    budget = cost_ledger.budget_policy(targets)
+    return {
+        "weekly_budget_enabled": budget["enabled"],
+        "weekly_budget_usd": budget["weekly_usd"],
+        "max_adds_per_week": None,
+        "max_drops_per_week": None,
+        "cooldown_days": 14,
+        "max_candidates": raw_watch.get("max_candidates", DEFAULT_MAX_CANDIDATES),
+        "max_stocks_per_sector": raw_watch.get("max_stocks_per_sector", DEFAULT_MAX_STOCKS_PER_SECTOR),
+        "supported_sectors": [{"ticker": ticker, "name": name}
+                               for ticker, name in SCOUT_SECTOR_LABELS.items()],
+    }
+
+
+@app.get("/api/settings")
+def settings_view():
+    return _dashboard_settings()
+
+
+@app.put("/api/settings")
+def settings_save(body: DashboardSettingsIn, request: Request):
+    _require_confirm_token(request)
+    with _data_write_lock():
+        current = _read_json(TARGETS) if TARGETS.is_file() else {}
+        if not isinstance(current, dict):
+            raise HTTPException(400, "Targets policy must be a JSON object")
+        budget = dict(current.get("budget") or {})
+        curator = dict(current.get("watchlist_curator") or {})
+        budget.update({"enabled": body.weekly_budget_enabled,
+                       "weekly_usd": body.weekly_budget_usd})
+        curator.update({
+            "max_adds_per_week": body.max_adds_per_week,
+            "max_drops_per_week": body.max_drops_per_week,
+            "max_candidates": body.max_candidates,
+            "max_stocks_per_sector": body.max_stocks_per_sector,
+        })
+        updated = {**current, "budget": budget,
+                   "weekly_budget_usd": body.weekly_budget_usd,
+                   "watchlist_curator": curator}
+        _write_json(TARGETS, updated)
+        return _dashboard_settings(updated)
+
+
 @app.get("/api/agents")
 def agents_view():
     try:
@@ -521,7 +655,8 @@ def agents_save(body: AgentConfigIn, request: Request):
     _require_confirm_token(request)
     payload = {"unlock": body.unlock, "seats": {k: v.model_dump() for k, v in body.seats.items()}}
     try:
-        return agent_config.validate_and_save(payload)
+        with _data_write_lock():
+            return agent_config.validate_and_save(payload)
     except agent_config.AgentConfigError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -605,11 +740,34 @@ _CORE_ETF_WARN_PCT = 30.0
 _CORE_ETF_BREACH_PCT = 32.0
 
 
+def _instrument_type(ticker: str, info: dict | None) -> str:
+    """Describe what an instrument is, independently of its portfolio role."""
+    kind = str((info or {}).get("type") or "").strip().upper()
+    if kind == "ETN":
+        return "ETN"
+    if kind == "ETF" or str(ticker or "").strip().upper() in _ETF_TICKERS:
+        return "ETF"
+    if kind in {"EQUITY", "STOCK"} or str(ticker or "").strip().upper() == "BRK-B":
+        return "Stock"
+    return f"Unknown ({kind})" if kind else "Unknown"
+
+
+def _approved_target_weights(targets: dict) -> dict:
+    raw = targets.get("approved_targets_pct") if isinstance(targets, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    return {str(ticker): value for ticker, value in raw.items()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(float(value)) and 0 <= float(value) <= 100}
+
+
 def _sleeve(ticker: str, info: dict | None) -> str:
-    kind = str((info or {}).get("type") or "").strip().lower()
-    if kind == "etf" or str(ticker or "").strip().upper() in _ETF_TICKERS:
+    instrument = _instrument_type(ticker, info)
+    if instrument == "ETF":
         return "core_etf"
-    return "swing"
+    if instrument == "Stock":
+        return "swing"
+    return "unclassified"
 
 
 @app.get("/api/portfolio")
@@ -617,7 +775,8 @@ def portfolio():
     # A missing book is a valid first-import state. Keep GET read-only; the
     # Tiger replacement path creates it only after preview and confirmation.
     book = _read_json(BOOK) if BOOK.exists() else {"cash": 0, "currency": "", "positions": []}
-    targets = _read_json(TARGETS) if TARGETS.exists() else {"weights_pct": {}}
+    targets = _read_json(TARGETS) if TARGETS.exists() else {}
+    approved_targets = _approved_target_weights(targets)
     stats = _latest_stats()
     price_map: dict[str, dict] = {}
     if stats:
@@ -656,8 +815,9 @@ def portfolio():
             "weight_pct": None,
             "sector": st.get("sector"),
             "name": st.get("name"),
-            "target_pct": (targets.get("weights_pct") or {}).get(t),
+            "target_pct": approved_targets.get(t),
             "sub_theme": _subtheme_index().get(str(t).upper()),
+            "instrument_type": _instrument_type(t, st),
             "sleeve": _sleeve(t, st),
         })
 
@@ -684,10 +844,11 @@ def portfolio():
     sleeves = {
         "core_etf": {"label": "Core ETF", "weight_pct": 0.0, "market_value": 0.0, "unrealized_pnl": 0.0},
         "swing": {"label": "Swing", "weight_pct": 0.0, "market_value": 0.0, "unrealized_pnl": 0.0},
+        "unclassified": {"label": "Unclassified", "weight_pct": 0.0, "market_value": 0.0, "unrealized_pnl": 0.0},
     }
     if total_mv:
         for r in rows:
-            bucket = sleeves.get(r.get("sleeve") or "swing", sleeves["swing"])
+            bucket = sleeves[r.get("sleeve") or "unclassified"]
             bucket["market_value"] += r["market_value"] or 0
             bucket["unrealized_pnl"] += r["unrealized_pnl"] or 0
             bucket["weight_pct"] += r["weight_pct"] or 0
@@ -710,10 +871,10 @@ def portfolio():
         "currency": book.get("currency", "USD"),
         "cash": cash,
         "cash_pct": round(cash_pct, 1) if cash_pct is not None else None,
-        "cash_target_pct": (targets.get("weights_pct") or {}).get("cash"),
+        "cash_target_pct": approved_targets.get("cash"),
         "positions": rows,
         "weights": weights_current,
-        "targets": targets.get("weights_pct") or {},
+        "targets": approved_targets,
         "account": account_out,
         "total_cost": total_cost,
         "total_market_value": account_out["total_value"],
@@ -733,26 +894,229 @@ def portfolio():
 # Watchlist
 # ---------------------------------------------------------------------------
 
-@app.get("/api/watchlist")
-def get_watchlist():
+def _saved_watchlist_items() -> list[dict]:
     if not WATCHLIST.exists():
-        return {"items": [], "subthemes": _subtheme_table([])}
+        return []
     data = _read_json(WATCHLIST)
-    if isinstance(data, dict):
-        items = data.get("items") or data.get("tickers") or []
-    else:
-        items = data
-    index = _subtheme_index()
+    items = next((data.get(key) for key in ("items", "candidates", "watchlist", "tickers")
+                  if isinstance(data.get(key), list)), []) if isinstance(data, dict) else data
     cleaned = []
     for item in items:
-        if isinstance(item, str):
-            item = {"ticker": item}
-        if not isinstance(item, dict):
+        row = {"ticker": item} if isinstance(item, str) else item
+        if not isinstance(row, dict):
             continue
+        ticker = str(row.get("ticker") or "").upper()
+        if ticker:
+            cleaned.append({**row, "ticker": ticker})
+    return cleaned
+
+
+def _canonical_watchlist(items: list[dict]) -> list[dict]:
+    """Fields the scout reads, normalized exactly like its load_watchlist helper."""
+    rows = []
+    seen = set()
+    for item in items:
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        row = {"ticker": ticker, "sector": item.get("sector"), "type": item.get("type") or "stock"}
+        for key in ("theme", "sub_theme", "note"):
+            if item.get(key):
+                row[key] = item[key]
+        rows.append(row)
+    return rows
+
+
+def _watchlist_version(items: list[dict]) -> str:
+    payload = json.dumps(_canonical_watchlist(items), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+SCOUT_SECTOR_LABELS = {
+    "XLK": "Information Technology",
+    "XLY": "Consumer Cyclical",
+    "XLV": "Healthcare",
+    "XLP": "Consumer Defensive",
+    "XLU": "Utilities",
+    "XLE": "Energy",
+    "XLF": "Financial Services",
+    "SMH": "Semiconductors",
+}
+SCOUT_SECTOR_ALIASES = {
+    "XLK": {"information technology", "technology"},
+    "XLY": {"consumer cyclical", "consumer discretionary"},
+    "XLV": {"healthcare", "health care"},
+    "XLP": {"consumer defensive", "consumer staples"},
+    "XLU": {"utilities", "utility"},
+    "XLE": {"energy"},
+    "XLF": {"financial services", "financials"},
+    "SMH": {"semiconductors", "technology"},
+}
+MAX_SCOUT_SECTORS = len(SCOUT_SECTOR_LABELS)
+
+
+def _watchlist_settings() -> dict:
+    return _dashboard_settings()
+
+
+def _validate_scout_sectors(sectors: list[str]) -> list[str]:
+    selected = list(dict.fromkeys(str(s).strip().upper() for s in sectors if str(s).strip()))
+    unknown = sorted(set(selected) - set(SCOUT_SECTOR_LABELS))
+    if unknown:
+        raise HTTPException(400, "Unknown discovery sector(s): " + ", ".join(unknown))
+    if not selected:
+        raise HTTPException(400, "Choose at least one discovery sector")
+    if len(selected) > MAX_SCOUT_SECTORS:
+        raise HTTPException(400, f"Choose at most {MAX_SCOUT_SECTORS} discovery sectors")
+    return selected
+
+
+def _sector_stock_tickers(sector: str) -> set[str]:
+    """Unique confirmed stock instruments in a sector across holdings and candidates."""
+    counts = {}
+    for row in get_watchlist()["items"]:
+        name = _canonical_sector_key(row.get("sector"))
+        if name != _canonical_sector_key(sector):
+            continue
+        instrument = row.get("instrument_type")
+        saved_type = str(row.get("type") or "").strip().lower()
+        if instrument == "Stock" or (not instrument or instrument == "Unknown") and saved_type == "stock":
+            counts.setdefault(name, set()).add(row["ticker"])
+    return counts.get(_canonical_sector_key(sector), set())
+
+
+def _held_tickers() -> set[str]:
+    held = set()
+    if BOOK.is_file():
+        try:
+            held = {str(p.get("ticker") or "").upper()
+                    for p in (_read_json(BOOK).get("positions") or [])}
+        except Exception:
+            held = set()
+    return held
+
+
+def _candidate_count(items: list[dict] | None = None) -> int:
+    rows = items if items is not None else _saved_watchlist_items()
+    held = _held_tickers()
+    return len({str(row.get("ticker") or "").upper() for row in rows
+                if row.get("ticker") and str(row.get("ticker")).upper() not in held})
+
+
+def _candidate_sector_tickers(sector: str, items: list[dict] | None = None) -> set[str]:
+    """Saved non-held stock candidates in a sector, excluding automatic holdings."""
+    rows = items if items is not None else _saved_watchlist_items()
+    held = set()
+    if BOOK.is_file():
+        try:
+            held = {str(p.get("ticker") or "").upper()
+                    for p in (_read_json(BOOK).get("positions") or [])}
+        except Exception:
+            held = set()
+    sector_key = _canonical_sector_key(sector)
+    names = set()
+    for row in rows:
+        ticker = str(row.get("ticker") or "").upper()
+        kind = str(row.get("type") or "stock").lower()
+        if (ticker and ticker not in held and kind == "stock"
+                and _canonical_sector_key(row.get("sector")) == sector_key):
+            names.add(ticker)
+    return names
+
+
+def _validate_watchlist_add(row: dict, items: list[dict]) -> None:
+    settings = _watchlist_settings()
+    ticker = str(row.get("ticker") or "").upper()
+    is_held = ticker in _held_tickers()
+    existing = _candidate_sector_tickers(str(row.get("sector") or "Other"), items)
+    if (not is_held and str(row.get("type") or "stock").lower() == "stock"
+            and settings["max_stocks_per_sector"] is not None
+            and ticker not in existing
+            and len(existing) >= settings["max_stocks_per_sector"]):
+        raise HTTPException(400, f"{row.get('sector') or 'Other'} already has {settings['max_stocks_per_sector']} active stock names")
+    maximum = settings["max_candidates"]
+    if (maximum is not None and ticker not in {str(item.get("ticker") or "").upper() for item in items}
+            and not is_held and _candidate_count(items) >= maximum):
+        raise HTTPException(400, f"Saved candidate limit ({maximum}) reached; existing names are kept. Raise the limit or remove a candidate first.")
+
+
+def _canonical_sector_key(sector: Any) -> str:
+    raw = str(sector or "").strip().casefold()
+    for code, aliases in SCOUT_SECTOR_ALIASES.items():
+        if raw == code.casefold() or raw in aliases:
+            return SCOUT_SECTOR_LABELS[code].casefold()
+    return raw
+
+
+def _staged_tickers() -> set[str]:
+    base = FUND_DIR
+    reports = [path for path in base.glob("*/*/portfolio_report.json") if path.is_file()] if base.is_dir() else []
+    if not reports:
+        return set()
+    try:
+        data = _read_json(max(reports, key=lambda path: path.stat().st_mtime))
+    except Exception:
+        return set()
+    staged = set()
+    for key in ("final", "draft"):
+        for trade in (data.get(key) or {}).get("trades") or []:
+            try:
+                has_shares = int(trade.get("shares") or 0) != 0
+            except (TypeError, ValueError):
+                has_shares = False
+            if str(trade.get("order_type") or "").lower() == "staged" and has_shares:
+                staged.add(str(trade.get("ticker") or "").upper())
+    return staged
+
+
+@app.get("/api/watchlist")
+def get_watchlist():
+    index = _subtheme_index()
+    stats = _latest_stats() or {}
+    market = {str(p.get("ticker") or "").upper(): p for p in stats.get("positions") or []}
+    candidates = {}
+    for item in _saved_watchlist_items():
         row = dict(item)
         ticker = str(row.get("ticker") or "").upper()
+        if not ticker:
+            continue
+        row["ticker"] = ticker
         row["sub_theme"] = row.get("sub_theme") or index.get(ticker)
-        cleaned.append(row)
+        row["origin"] = "candidate"
+        row["origins"] = ["candidate"]
+        row["held"] = False
+        info = market.get(ticker)
+        saved_type = str(row.get("type") or "").lower()
+        live_type = _instrument_type(ticker, info) if info else "Unknown"
+        row["instrument_type"] = live_type if live_type.startswith(("ETF", "Stock")) else (
+            "ETF" if saved_type == "etf" else "Stock" if saved_type == "stock" else "Unknown")
+        candidates[ticker] = row
+
+    book = _read_json(BOOK) if BOOK.exists() else {"positions": []}
+    held_rows = []
+    for position in book.get("positions") or []:
+        ticker = str(position.get("ticker") or "").upper()
+        if not ticker:
+            continue
+        info = market.get(ticker) or {}
+        row = dict(candidates.get(ticker) or {
+            "ticker": ticker, "sector": info.get("sector"), "type": None,
+            "sub_theme": index.get(ticker),
+        })
+        row.update({
+            "held": True,
+            "origin": "held and candidate" if ticker in candidates else "held",
+            "origins": ["held", "candidate"] if ticker in candidates else ["held"],
+            "instrument_type": (_instrument_type(ticker, info)
+                                if _instrument_type(ticker, info).startswith(("ETF", "Stock"))
+                                else row.get("instrument_type", "Unknown")),
+            "sleeve": (_sleeve(ticker, info)
+                       if _instrument_type(ticker, info).startswith(("ETF", "Stock")) else None),
+        })
+        held_rows.append(row)
+    held_tickers = {row["ticker"] for row in held_rows}
+    cleaned = held_rows + [row for ticker, row in candidates.items() if ticker not in held_tickers]
     return {"items": cleaned, "subthemes": _subtheme_table(cleaned)}
 
 
@@ -773,19 +1137,20 @@ def add_watchlist(item: WatchlistAdd, request: Request):
     _require_confirm_token(request)
     with _data_write_lock():
         ticker = _safe_ticker(item.ticker)
-        current = get_watchlist()["items"]
+        current = _saved_watchlist_items()
         for it in current:
             if str(it.get("ticker", "")).upper() == ticker:
                 raise HTTPException(409, f"{ticker} already on watchlist")
         entry = {"ticker": ticker, "sector": item.sector.strip() or "Other", "type": item.type}
+        _validate_watchlist_add(entry, current)
         if item.sub_theme:
             if item.sub_theme not in _subtheme_labels() and item.sub_theme not in SUBTHEME_ORDER:
                 raise HTTPException(400, f"Unknown sub_theme {item.sub_theme}")
             entry["sub_theme"] = item.sub_theme
         current.append(entry)
-        _write_json(WATCHLIST, current)
+        _write_watchlist_items(current)
         _watch_log("add", ticker, entry, "added in Argus")
-        return {"ok": True, "items": current}
+        return {"ok": True, "items": get_watchlist()["items"]}
 
 
 @app.delete("/api/watchlist/{ticker}")
@@ -795,14 +1160,14 @@ def remove_watchlist(ticker: str, request: Request):
         ticker = _safe_ticker(ticker)
         if not WATCHLIST.exists():
             raise HTTPException(404, "Watchlist empty")
-        current = get_watchlist()["items"]
+        current = _saved_watchlist_items()
         removed = next((it for it in current if str(it.get("ticker", "")).upper() == ticker), None)
         new = [it for it in current if str(it.get("ticker", "")).upper() != ticker]
         if removed is None:
             raise HTTPException(404, f"{ticker} not on watchlist")
-        _write_json(WATCHLIST, new)
+        _write_watchlist_items(new)
         _watch_log("drop", ticker, removed, "removed in Argus")
-        return {"ok": True, "items": new}
+        return {"ok": True, "items": get_watchlist()["items"]}
 
 
 @app.post("/api/watchlist/undo")
@@ -814,19 +1179,27 @@ def undo_watchlist(request: Request):
         event = watchlist_log.last_undoable(events)
         if event is None:
             raise HTTPException(404, "Nothing to undo")
-        current = get_watchlist()["items"] if WATCHLIST.exists() else []
-        updated = watchlist_log.undo_items(current, event)
-        _write_json(WATCHLIST, updated)
-        undone = watchlist_log.append_event(DATA, {
-            "as_of": datetime.now().strftime("%Y-%m-%d"),
-            "action": "undo",
-            "ticker": event.get("ticker"),
-            "reason": f"undo {event.get('action')}",
-            "source": "argus",
-            "undo_of": event.get("id"),
-            "row": event.get("row"),
-        })
-        return {"ok": True, "undone": undone, "items": updated}
+        current = _saved_watchlist_items()
+        group = event.get("transaction_events") if isinstance(event.get("transaction_events"), list) else [event]
+        updated = current
+        for source_event in reversed(group):
+            updated = watchlist_log.undo_items(updated, source_event)
+        undo_events = []
+        for source_event in group:
+            undo_events.append({
+                "as_of": datetime.now().strftime("%Y-%m-%d"),
+                "action": "undo",
+                "ticker": source_event.get("ticker"),
+                "reason": f"undo {source_event.get('action')}",
+                "source": "argus",
+                "undo_of": source_event.get("id"),
+                "row": source_event.get("row"),
+            })
+        undo_transaction_id = uuid.uuid4().hex
+        _commit_watchlist_transaction(current, updated, undo_events, undo_transaction_id)
+        undone = [row for row in watchlist_log.read_events(DATA)
+                  if row.get("transaction_id") == undo_transaction_id]
+        return {"ok": True, "undone": undone, "items": get_watchlist()["items"]}
 
 
 @app.get("/api/spend")
@@ -1152,18 +1525,179 @@ def theme_scout_view():
     return _latest_theme_scout()
 
 
+def _latest_watchlist_proposal() -> Path | None:
+    if not SCOUT_DIR.is_dir():
+        return None
+    folders = sorted((p for p in SCOUT_DIR.iterdir() if p.is_dir() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", p.name)),
+                     key=lambda p: p.name, reverse=True)
+    return next((folder / "watchlist_proposals.json" for folder in folders
+                 if (folder / "watchlist_proposals.json").is_file()), None)
+
+
+def _proposal_payload_hash(proposal: dict) -> str:
+    payload = json.dumps(proposal, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+@app.get("/api/watchlist/proposal")
+def watchlist_proposal_view():
+    path = _latest_watchlist_proposal()
+    if path is None:
+        return {"proposal": None, "applicable": False, "reason": "No scout proposal is available."}
+    proposal = _read_json(path)
+    coverage = {key: proposal.get(key) for key in (
+        "ranking_status", "ranking_count", "ranking_expected_count",
+        "ranking_missing_tickers", "ranking_warnings") if key in proposal}
+    saved = _saved_watchlist_items()
+    current_version = _watchlist_version(saved)
+    base_version = proposal.get("base_watchlist_version")
+    book = _read_json(BOOK) if BOOK.exists() else {"positions": []}
+    held = {str(row.get("ticker") or "").upper() for row in book.get("positions") or []}
+    staged = _staged_tickers()
+    saved_by = {row["ticker"]: row for row in saved}
+    proposed_by = {str(row.get("ticker") or "").upper(): row for row in proposal.get("proposed") or []
+                   if isinstance(row, dict)}
+    review_changes = []
+    for change in proposal.get("changes") or []:
+        if not isinstance(change, dict) or change.get("action") not in {"add", "drop"}:
+            continue
+        ticker = str(change.get("ticker") or "").upper()
+        row = proposed_by.get(ticker) if change["action"] == "add" else saved_by.get(ticker)
+        blocked = ""
+        if change["action"] == "drop" and ticker in held:
+            blocked = "This instrument is currently held."
+        elif change["action"] == "drop" and ticker in staged:
+            blocked = "This instrument has a staged order."
+        review_changes.append({**change, "sector": (row or {}).get("sector"),
+                               "type": (row or {}).get("type"), "blocked_reason": blocked})
+    if not base_version:
+        return {"proposal": proposal, "review_changes": review_changes, "coverage": coverage,
+                "date": path.parent.name, "base_watchlist_version": None,
+                "current_watchlist_version": current_version, "applicable": False,
+                "reason": "This proposal predates watchlist versioning. Run the scout again to review it safely."}
+    stale = base_version != current_version
+    proposal_sha256 = _proposal_payload_hash(proposal)
+    return {"proposal": proposal, "review_changes": review_changes, "coverage": coverage,
+            "date": path.parent.name,
+            "base_watchlist_version": base_version, "current_watchlist_version": current_version,
+            "proposal_sha256": proposal_sha256,
+            "applicable": not stale,
+            "reason": "The watchlist changed after this proposal was generated." if stale else ""}
+
+
+@app.post("/api/watchlist/proposal/apply")
+def apply_watchlist_proposal(body: WatchlistProposalApply, request: Request):
+    _require_confirm_token(request)
+    if not body.confirm:
+        raise HTTPException(400, "Set confirm=true after reviewing the selected proposal changes")
+    try:
+        proposal_date = datetime.strptime(body.date, "%Y-%m-%d").date().isoformat()
+    except ValueError as exc:
+        raise HTTPException(400, "date must be YYYY-MM-DD") from exc
+    adds = [_safe_ticker(t) for t in body.add]
+    drops = [_safe_ticker(t) for t in body.drop]
+    if len(set(adds)) != len(adds) or len(set(drops)) != len(drops) or set(adds) & set(drops):
+        raise HTTPException(400, "Proposal selections must be unique and cannot add and drop the same ticker")
+
+    with _data_write_lock():
+        path = SCOUT_DIR / proposal_date / "watchlist_proposals.json"
+        if not path.is_file():
+            raise HTTPException(404, "Scout proposal not found")
+        proposal = _read_json(path)
+        proposal_version = proposal.get("base_watchlist_version")
+        current = _saved_watchlist_items()
+        current_version = _watchlist_version(current)
+        if not proposal_version or proposal_version != body.base_watchlist_version or current_version != proposal_version:
+            raise HTTPException(409, "The watchlist changed after this proposal was generated. Rerun the scout before applying it.")
+        if not re.fullmatch(r"[0-9a-f]{64}", body.proposal_sha256) or _proposal_payload_hash(proposal) != body.proposal_sha256:
+            raise HTTPException(409, "The scout proposal changed after review. Review the current proposal before applying it.")
+        sectors = _validate_scout_sectors(proposal.get("sectors") or [])
+        changes = {(str(row.get("action") or ""), str(row.get("ticker") or "").upper()): row
+                   for row in proposal.get("changes") or [] if isinstance(row, dict)}
+        if any(("add", ticker) not in changes for ticker in adds):
+            raise HTTPException(400, "An add selection is not part of this proposal")
+        if any(("drop", ticker) not in changes for ticker in drops):
+            raise HTTPException(400, "A drop selection is not part of this proposal")
+        if not adds and not drops:
+            raise HTTPException(400, "Select at least one proposal change to apply")
+
+        book = _read_json(BOOK) if BOOK.exists() else {"positions": []}
+        held = {str(row.get("ticker") or "").upper() for row in book.get("positions") or []}
+        staged = _staged_tickers()
+        protected = (set(drops) & held) | (set(drops) & staged)
+        if protected:
+            raise HTTPException(409, "Held or staged names cannot be removed: " + ", ".join(sorted(protected)))
+
+        proposed = {str(row.get("ticker") or "").upper(): row for row in proposal.get("proposed") or []
+                    if isinstance(row, dict) and row.get("ticker")}
+        current_by_ticker = {row["ticker"]: row for row in current}
+        missing_drops = set(drops) - set(current_by_ticker)
+        if missing_drops:
+            raise HTTPException(409, "Proposal drops are no longer on the watchlist: " + ", ".join(sorted(missing_drops)))
+        if any(ticker not in proposed for ticker in adds):
+            raise HTTPException(400, "An add selection has no proposed candidate row")
+        updated = [row for row in current if row["ticker"] not in set(drops)]
+        updated_tickers = {row["ticker"] for row in updated}
+        for ticker in adds:
+            if ticker in updated_tickers:
+                raise HTTPException(409, f"{ticker} is already on the watchlist")
+            row = dict(proposed[ticker])
+            row["ticker"] = _safe_ticker(ticker)
+            sector = str(row.get("sector") or "").strip()
+            if not sector:
+                raise HTTPException(400, f"{ticker} has no sector classification")
+            if row.get("type", "stock") not in ("stock", "etf"):
+                raise HTTPException(400, f"{ticker} has an unsupported instrument type")
+            sector_key = _canonical_sector_key(sector)
+            selected_group = next((code for code in sectors
+                                   if sector_key == _canonical_sector_key(code)), None)
+            if selected_group is None:
+                raise HTTPException(400, f"{ticker} is outside the selected discovery sectors")
+            _validate_watchlist_add(row, updated)
+            updated.append(row)
+            updated_tickers.add(ticker)
+
+        import watchlist_log
+        event_group = []
+        for ticker in drops:
+            event_group.append({
+                "as_of": datetime.now().strftime("%Y-%m-%d"), "action": "drop", "ticker": ticker,
+                "reason": changes[("drop", ticker)].get("reason") or "approved from scout proposal",
+                "source": "scout_review", "row": current_by_ticker[ticker],
+            })
+        for ticker in adds:
+            event_group.append({
+                "as_of": datetime.now().strftime("%Y-%m-%d"), "action": "add", "ticker": ticker,
+                "reason": changes[("add", ticker)].get("reason") or "approved from scout proposal",
+                "source": "scout_review", "row": proposed[ticker],
+            })
+        _commit_watchlist_transaction(current, updated, event_group, uuid.uuid4().hex)
+        return {"ok": True, "items": get_watchlist()["items"],
+                "watchlist_version": _watchlist_version(updated), "added": adds, "dropped": drops}
+
+
 @app.post("/api/theme-scout")
 def theme_scout_run(body: ScoutRequest, request: Request):
     _require_confirm_token(request)
     if not body.confirm:
-        raise HTTPException(400, "Set confirm=true after acknowledging the screen or the weekly Sol call")
+        raise HTTPException(400, "Set confirm=true after acknowledging the screen or the weekly configured model call")
     if body.mode not in ("screen", "weekly"):
         raise HTTPException(400, "mode must be screen or weekly")
+    preview = _build_scout_manifest(body)
+    if (not body.manifest_sha256 or
+            not secrets.compare_digest(body.manifest_sha256, preview["manifest_sha256"])):
+        raise HTTPException(409, "Scout inputs or configuration changed after review. Review the current scout manifest and confirm again.")
+    sectors = preview["manifest"]["sectors"]
     if not RUNNER.exists():
         raise HTTPException(500, f"Native runner missing: {RUNNER}")
-    args = [sys.executable, str(RUNNER), "--ta-root", str(TA_ROOT), "--scout-mode", body.mode]
+    args = [sys.executable, str(RUNNER), "--ta-root", str(TA_ROOT), "--data-root", str(DATA),
+            "--scout-mode", body.mode, "--manifest-input-fingerprint",
+            preview["manifest"]["input_fingerprint"]["sha256"]]
     if body.include_llm:
         args.append("--scout-llm")
+    if body.single_call:
+        args.append("--scout-single-call")
+    args.extend(["--scout-sectors", *sectors])
     est_min = 3 if body.mode == "screen" or not body.include_llm else 6
     rid = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
     meta = {
@@ -1186,6 +1720,266 @@ def theme_scout_run(body: ScoutRequest, request: Request):
     return {"run": meta}
 
 
+def _build_scout_manifest(body: ScoutRequest) -> dict:
+    if body.mode not in ("screen", "weekly"):
+        raise HTTPException(400, "mode must be screen or weekly")
+    if body.include_llm and body.mode != "weekly":
+        raise HTTPException(400, "A paid scout call is available only in weekly mode")
+    sectors = _validate_scout_sectors(body.sectors or list(SCOUT_SECTOR_LABELS)[:MAX_SCOUT_SECTORS])
+    seat_payload = agent_config.public_payload()
+    scout_seat = next((seat for seat in seat_payload.get("seats", []) if seat.get("id") == "theme_scout"), None)
+    if body.include_llm and scout_seat is None:
+        raise HTTPException(409, "Theme scout model configuration is unavailable")
+    input_fingerprint = _execution_input_fingerprint()
+    book = _read_json(BOOK) if BOOK.is_file() else {"positions": []}
+    holdings = list(dict.fromkeys(str(row.get("ticker") or "").upper()
+                                  for row in book.get("positions") or [] if row.get("ticker")))
+    held = set(holdings)
+    candidates = list(dict.fromkeys(str(row.get("ticker") or "").upper()
+                                    for row in _saved_watchlist_items()
+                                    if row.get("ticker") and str(row.get("ticker")).upper() not in held))
+    sector_etfs = [{"ticker": ticker, "sector": SCOUT_SECTOR_LABELS[ticker]}
+                   for ticker in sectors]
+    estimate = ((float(scout_seat["est_cost_usd"])
+                 if scout_seat.get("est_cost_usd") is not None else None)
+                if body.include_llm else 0.0)
+    import cost_ledger
+    targets = _read_json(TARGETS) if TARGETS.is_file() else {}
+    cost_policy = cost_ledger.budget_policy(targets)
+    weekly_spend = cost_ledger.weekly_spend(DATA, datetime.now(timezone.utc).date(), targets)
+    manifest = {
+        "mode": body.mode,
+        "sectors": sectors,
+        "include_llm": body.include_llm,
+        "single_call": bool(body.include_llm and body.single_call),
+        "model": ({key: scout_seat.get(key) for key in
+                   ("id", "label", "model", "effort", "max_tokens", "temperature", "est_cost_usd")}
+                  if scout_seat else None),
+        "retry_policy": "zero automatic retries" if body.include_llm and body.single_call else "configured runtime retry policy",
+        "model_scope": {
+            "holdings": holdings,
+            "saved_candidates": candidates,
+            "selected_sector_etfs": sector_etfs,
+            "dynamic_discovery": {
+                "source": "Yahoo sector screener plus free market-data screen",
+                "max_stock_tickers_per_sector": 20,
+                "maximum_stock_tickers": 20 * len(sectors),
+                "actual_tickers_known_before_run": False,
+                "note": "The free screen selects discovered stock symbols before the scout model request; the exact discovered symbols appear in the run report.",
+            },
+            "fixed_market_context": ["SPY", "QQQ", "SMH"],
+        },
+        "input_fingerprint": input_fingerprint,
+        "cost_estimate": {
+            "amount_usd": estimate,
+            "is_hard_ceiling": False,
+            "verified_current": False,
+            "source": "local_model_price_and_token_estimate" if estimate is not None and body.include_llm
+                      else "unavailable" if body.include_llm else "no_paid_model_call",
+            "note": ("Local model-based estimate only; rates are not verified current and this is not a spending cap. Check actual provider cost after the call."
+                     if body.include_llm and estimate is not None
+                     else "Unavailable: the configured scout model has no local price and token estimate. Check actual provider cost after the call."
+                     if body.include_llm
+                     else "No paid model call is included."),
+        },
+        "spending_controls": {
+            "weekly_budget_enabled": cost_policy.get("enabled", True),
+            "weekly_budget_usd": cost_policy["weekly_usd"],
+            "spent_usd": weekly_spend["spent_usd"],
+            "note": ("Weekly spending check is disabled; usage is still recorded."
+                     if not cost_policy.get("enabled", True)
+                     else "Runner checks the weekly allowance before this request; the local estimate is not a provider-side cap."),
+        },
+    }
+    request_values = body.model_dump()
+    request_values.pop("confirm", None)
+    request_values.pop("manifest_sha256", None)
+    manifest["request"] = request_values
+    digest = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":"),
+                                              ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {"manifest": manifest, "manifest_sha256": digest}
+
+
+def _execution_input_fingerprint() -> dict:
+    return _fingerprint_run_inputs(DATA, TA_ROOT, {
+        "agent_config": Path(agent_config.config_path()),
+        "model_rates": Path(agent_config.models_path()),
+    })
+
+
+@app.post("/api/theme-scout/manifest")
+def theme_scout_manifest(body: ScoutRequest):
+    return _build_scout_manifest(body)
+
+
+def _build_run_manifest(body: RunRequest) -> dict:
+    if body.no_llm and body.analysis_only:
+        raise HTTPException(400, "ANL-only requires paid ticker analysis; use snapshot mode for a no-LLM run")
+    if body.analysis_date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.analysis_date):
+        raise HTTPException(400, "analysis_date must be YYYY-MM-DD")
+    if body.since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.since):
+        raise HTTPException(400, "since must be YYYY-MM-DD")
+    requested = list(dict.fromkeys(_safe_ticker(t) for t in body.tickers))
+    book = _read_json(BOOK) if BOOK.is_file() else {"positions": []}
+    holdings = list(dict.fromkeys(str(row.get("ticker") or "").upper()
+                                  for row in book.get("positions") or [] if row.get("ticker")))
+    saved = _saved_watchlist_items()
+    candidates = list(dict.fromkeys(str(row.get("ticker") or "").upper() for row in saved
+                                    if row.get("ticker") and str(row.get("ticker")).upper() not in holdings))
+    eligible = (holdings if body.run_agents else []) + (candidates if body.include_watchlist else [])
+    eligible = list(dict.fromkeys(eligible))
+    if requested:
+        invalid = sorted(set(requested) - set(eligible))
+        if invalid and not body.no_llm:
+            raise HTTPException(400, "Selected tickers are outside the enabled ANL scope: " + ", ".join(invalid))
+        analysis_tickers = [ticker for ticker in eligible if ticker in requested]
+    else:
+        analysis_tickers = eligible
+    if body.analysis_only and not requested:
+        raise HTTPException(400, "ANL-only requires explicit ticker selection")
+    if body.analysis_only and not analysis_tickers:
+        raise HTTPException(400, "ANL-only has no eligible selected tickers")
+    if not body.no_llm and (body.run_agents or body.include_watchlist) and not analysis_tickers and not body.analysis_only:
+        raise HTTPException(400, "The enabled ANL scope has no eligible tickers")
+
+    if body.no_llm:
+        mode = "snapshot"
+    elif body.analysis_only:
+        mode = "ANL"
+    elif analysis_tickers:
+        mode = "ANL+REV"
+    else:
+        mode = "REV"
+    if mode == "snapshot":
+        # Snapshot runs execute no fresh LLM ticker analysis even when the form
+        # retains ticker selections from a prior paid run.
+        analysis_tickers = []
+
+    portfolio_tickers = holdings + candidates
+    seat_payload = agent_config.public_payload()
+    safe_fields = ("id", "label", "pipeline", "model", "max_tokens", "est_input_tokens", "est_output_tokens", "est_cost_usd")
+    all_seats = [{**{key: seat.get(key) for key in safe_fields},
+                  "max_tokens_setting": seat.get("max_tokens") if seat.get("max_tokens") is not None
+                  else "not explicitly set; runtime default"}
+                 for seat in seat_payload.get("seats") or []]
+    native_seats = [seat for seat in all_seats if seat.get("pipeline") == "native"]
+    fund_seats_by_id = {seat.get("id"): seat for seat in all_seats if seat.get("pipeline") == "fund"}
+    stages = []
+    if mode == "snapshot":
+        stages = [
+            {"id": "SCR", "name": "Market data preflight and screen", "paid": False},
+            {"id": "REV-SNAPSHOT", "name": "No-LLM portfolio snapshot", "paid": False},
+        ]
+    if mode in {"ANL", "ANL+REV"}:
+        stages.extend({"id": f"ANL:{ticker}", "name": f"Fresh ticker analysis: {ticker}", "paid": True,
+                       "workflow": ["market", "sentiment", "news", "fundamentals", "bull/bear research",
+                                    "research manager", "trader", "ticker risk committee", "portfolio manager"],
+                       "configured_seats": native_seats}
+                      for ticker in analysis_tickers)
+    if mode in {"REV", "ANL+REV"}:
+        stages.extend([
+            {"id": "REV:DRAFT", "name": "Portfolio review draft", "paid": True,
+             "seat": fund_seats_by_id.get("fm_manager")},
+            {"id": "REV:RISK:1", "name": "Portfolio risk committee, round 1", "paid": True,
+             "seats": [fund_seats_by_id.get(key) for key in
+                       ("fm_aggressive", "fm_conservative", "fm_neutral")]},
+            {"id": "REV:FINAL", "name": "Portfolio review final", "paid": True,
+             "seat": fund_seats_by_id.get("fm_manager")},
+        ])
+    if body.include_risk:
+        # This selects existing ticker risk notes as context; it is not another run stage.
+        for stage in stages:
+            if stage["id"] == "REV:DRAFT":
+                stage["include_existing_ticker_risk_notes"] = True
+
+    targets = _read_json(TARGETS) if TARGETS.is_file() else {}
+    import cost_ledger
+    cost_policy = cost_ledger.budget_policy(targets)
+    expected_paid = len(analysis_tickers) if mode in {"ANL", "ANL+REV"} else 0
+    include_rev = mode in {"REV", "ANL+REV"}
+    cost_estimate = (expected_paid * cost_policy["native_run_estimate_usd"]
+                     + (cost_policy["fund_manager_estimate_usd"] if include_rev else 0))
+    spend = cost_ledger.weekly_spend(DATA, datetime.now(timezone.utc).date(), targets)
+    report_sources = {}
+    report_date_anchor = body.analysis_date or datetime.now(timezone.utc).date().isoformat()
+    for ticker in portfolio_tickers:
+        latest = None
+        if REPORTS_DIR.is_dir():
+            for folder in REPORTS_DIR.iterdir():
+                match = re.fullmatch(r"(.+)_(\d{8}_\d{6})", folder.name)
+                if folder.is_dir() and match and match.group(1).upper() == ticker and (folder / "complete_report.md").is_file():
+                    if latest is None or match.group(2) > latest[0]:
+                        latest = (match.group(2), folder)
+        if latest is None:
+            report_sources[ticker] = {"status": "missing", "analysis_date": None}
+            continue
+        stamp, folder = latest
+        text_header = (folder / "complete_report.md").read_text(encoding="utf-8", errors="replace")[:1500]
+        match_date = re.search(r"Analysis date:\s*(\S+)", text_header)
+        source_date = match_date.group(1) if match_date else f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}"
+        if ticker in holdings and body.since and stamp[:8] < body.since.replace("-", ""):
+            status = "excluded_by_since"
+        else:
+            try:
+                age = (datetime.strptime(report_date_anchor, "%Y-%m-%d").date()
+                       - datetime.strptime(source_date, "%Y-%m-%d").date()).days
+            except ValueError:
+                age = None
+            status = "unknown" if age is None else "future" if age < 0 else "current" if age == 0 else "reused" if age <= 7 else "stale"
+        report_sources[ticker] = {"status": status, "analysis_date": source_date,
+                                  "report_dir": folder.name}
+    price_models = [{key: row.get(key) for key in ("id", "label", "usd_per_mtok_in", "usd_per_mtok_out")}
+                    for row in seat_payload.get("models") or []]
+    input_fingerprint = _execution_input_fingerprint()
+    manifest = {
+        "mode": mode,
+        "request": {key: value for key, value in body.model_dump().items()
+                    if key not in {"confirm", "manifest_sha256"}},
+        "analysis_date": body.analysis_date or "auto (resolved by market preflight)",
+        "since": body.since or None,
+        "fresh_analysis_tickers": analysis_tickers,
+        "portfolio_review_context_tickers": portfolio_tickers if include_rev else [],
+        "portfolio_report_inputs": report_sources if include_rev else {},
+        "stages": stages,
+        "portfolio_context": {"holdings": holdings, "cash": book.get("cash"),
+                              "saved_candidates": candidates} if include_rev or mode == "snapshot" else None,
+        "input_fingerprint": input_fingerprint,
+        "cost_estimate": {
+            "amount_usd": round(cost_estimate, 4),
+            "kind": "configured_budget_planning_placeholder",
+            "assumptions": {"per_native_ticker_usd": cost_policy["native_run_estimate_usd"],
+                            "per_fund_manager_run_usd": cost_policy["fund_manager_estimate_usd"],
+                            "native_ticker_count": expected_paid, "fund_manager_runs": int(include_rev)},
+            "is_hard_ceiling": False,
+            "note": "Configured budget-planning placeholder from local weekly-ledger settings, not a model-priced estimate or provider price quote. Actual provider cost depends on model rates, tokens, tools, retries, and scope; check after the call.",
+        },
+        "spending_controls": {
+            "weekly_budget_usd": cost_policy["weekly_usd"],
+            "weekly_budget_enabled": cost_policy.get("enabled", True),
+            "spent_usd": spend["spent_usd"],
+            "unpriced_runs": spend.get("unpriced_runs", 0),
+            "gate": "Runner checks allowance before every native ticker and before the fund-manager stage. It does not impose a provider-side hard ceiling.",
+        },
+        "model_price_inventory": {
+            "rates": price_models,
+            "pricing_note": seat_payload.get("pricing_note") or "No local model pricing note.",
+            "verified_current": False,
+            "warning": "Local rates are inventory only and have not been independently verified as current provider prices.",
+        },
+        "outputs": {"ticker_reports": "data/logs/reports/<ticker>_<date>_<time>/",
+                    "portfolio_report": "data/fund_manager/<analysis-date>/<run-id>/",
+                    "run_log": "Argus run history and log"},
+    }
+    digest = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":"),
+                                      ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {"manifest": manifest, "manifest_sha256": digest}
+
+
+@app.post("/api/runs/manifest")
+def runs_manifest(body: RunRequest):
+    return _build_run_manifest(body)
+
+
 @app.post("/api/runs")
 def runs_start(body: RunRequest, request: Request):
     _require_confirm_token(request)
@@ -1193,24 +1987,22 @@ def runs_start(body: RunRequest, request: Request):
         raise HTTPException(400, "Set confirm=true after acknowledging cost/time warning")
     if not RUNNER.exists():
         raise HTTPException(500, f"Native runner missing: {RUNNER}")
-
+    approved_manifest = _build_run_manifest(body)
+    if not body.manifest_sha256 or not secrets.compare_digest(body.manifest_sha256, approved_manifest["manifest_sha256"]):
+        raise HTTPException(409, "The run scope or configuration changed after review. Review the current manifest and confirm again.")
     flags = _script_flags()
-    tickers = [_safe_ticker(t) for t in body.tickers] if body.tickers else []
+    manifest = approved_manifest["manifest"]
+    tickers = manifest["fresh_analysis_tickers"]
+    n = len(tickers)
+    est_min = 0 if body.no_llm else (int(round(n * 2.5)) + (9 if manifest["mode"] in {"REV", "ANL+REV"} else 0))
 
-    # Cost/time estimate for UI echo
-    n = len(tickers) if tickers else 0
-    if body.run_agents and n == 0:
-        try:
-            n = len((_read_json(BOOK).get("positions") or []))
-        except Exception:
-            n = 0
-    # Observed per-ticker runs were about 2.5 minutes. The fund-manager step is 5 calls
-    # (draft, three risk voices, final). The conservative voice is Opus.
-    est_min = 0 if body.no_llm else (int(round(n * 2.5)) if body.run_agents else 9)
-
-    args = [sys.executable, str(RUNNER), "--ta-root", str(TA_ROOT)]
+    args = [sys.executable, str(RUNNER), "--ta-root", str(TA_ROOT), "--data-root", str(DATA),
+            "--manifest-input-fingerprint", manifest["input_fingerprint"]["sha256"],
+            "--manifest-analysis-tickers-json", json.dumps(tickers, separators=(",", ":"))]
     if body.run_agents:
         args.append("--run-agents")
+    if body.analysis_only:
+        args.append("--anl-only")
     if body.no_llm:
         args.append("--no-llm")
     if body.include_risk:
@@ -1220,12 +2012,8 @@ def runs_start(body: RunRequest, request: Request):
     if body.include_watchlist:
         args.append("--include-watchlist")
     if body.analysis_date:
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.analysis_date):
-            raise HTTPException(400, "analysis_date must be YYYY-MM-DD")
         args.extend(["--analysis-date", body.analysis_date])
     if body.since:
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.since):
-            raise HTTPException(400, "since must be YYYY-MM-DD")
         args.extend(["--since", body.since])
     if tickers:
         args.extend(["--tickers", *tickers])
@@ -1242,6 +2030,9 @@ def runs_start(body: RunRequest, request: Request):
         "options": body.model_dump(),
         "estimate_minutes": est_min,
         "ticker_count": n,
+        "manifest": manifest,
+        "manifest_sha256": approved_manifest["manifest_sha256"],
+        "estimated_cost_usd": manifest["cost_estimate"]["amount_usd"],
     }
     (RUNS_DIR / rid).mkdir(parents=True, exist_ok=True)
     _save_run(meta)
