@@ -11,5 +11,5 @@ export TRADINGAGENTS_ROOT="${TRADINGAGENTS_ROOT:-$(cd "$ARGUS_DIR/../TradingAgen
 exec "$ARGUS_DIR/.venv/bin/python" -m uvicorn server:app \
   --app-dir "$ARGUS_DIR" \
   --host "${ARGUS_HOST:-127.0.0.1}" \
-  --port "${ARGUS_PORT:-8787}" \
+  --port "${ARGUS_PORT:-8788}" \
   --workers 1

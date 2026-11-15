@@ -19,7 +19,10 @@ def main() -> None:
         raise SystemExit("python-dotenv is required by the TradingAgents environment") from exc
     load_dotenv(root / ".env", override=False)
     load_dotenv(root / ".env.enterprise", override=False)
-    sys.path.insert(0, str(root))
+    # Match ``python /path/to/script.py``: imports beside the entry point take
+    # precedence, while the TradingAgents root remains available for packages.
+    import_paths = list(dict.fromkeys((str(script.parent), str(root))))
+    sys.path[:] = import_paths + [entry for entry in sys.path if entry not in import_paths]
     sys.argv = [str(script), *sys.argv[3:]]
     runpy.run_path(str(script), run_name="__main__")
 

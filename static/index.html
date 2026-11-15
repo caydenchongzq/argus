@@ -56,21 +56,28 @@
             <h1 class="ar-h1">Portfolio</h1>
             <p class="ar-muted" id="pfSub">Holdings, weights vs targets</p>
           </div>
-          <button type="button" class="ar-btn" id="tigerImportOpen">Import from Tiger</button>
+          <button type="button" class="ar-btn" id="brokerImportOpen">Import broker account</button>
         </div>
         <div class="ar-grid" id="pfCards"></div>
+        <p class="ar-subtle" id="pfRiskNote"></p>
+        <section class="ar-card ar-card--flush">
+          <div class="ar-card__header"><h2 class="ar-card__title">Accounts</h2><p class="ar-subtle" id="pfAccountsNote"></p></div>
+          <div class="ar-table-wrap"><table class="ar-table" id="pfAccounts"><thead><tr><th>Account</th><th>Broker</th><th class="ar-num">Holdings (USD)</th><th class="ar-num">Known cash (USD)</th><th class="ar-num">Account value</th><th>Snapshot</th></tr></thead><tbody></tbody></table></div>
+        </section>
         <div class="ar-grid">
           <section class="ar-card ar-card--flush ar-span-8">
             <div class="ar-card__header">
               <h2 class="ar-card__title">Holdings</h2>
-              <p class="ar-subtle" id="pfSleeve"></p>
+              <div class="ar-field ar-field--filter"><label class="ar-label" for="pfAccountFilter">Account</label><select class="ar-select" id="pfAccountFilter"><option value="all">All accounts</option></select></div>
             </div>
+            <p class="ar-subtle" id="pfHoldingsNote">Sellable quantity is shown only in a single-account view.</p>
+            <p class="ar-subtle" id="pfSleeve"></p>
             <div class="ar-table-wrap">
               <table class="ar-table" id="pfTable">
                 <thead>
                   <tr>
-                    <th>Ticker</th><th>Name</th><th>Sub-theme</th><th>Instrument</th><th>Analysis sleeve</th>
-                    <th class="ar-num">Qty</th><th class="ar-num">Avg (USD)</th><th class="ar-num">Price (USD)</th>
+                    <th>Ticker</th><th>Name</th><th>Instrument</th><th>Analysis sleeve</th>
+                    <th class="ar-num">Qty</th><th class="ar-num">Sellable (account)</th><th class="ar-num">Avg (USD)</th><th class="ar-num">Price (USD)</th>
                     <th class="ar-num">Value (USD)</th><th class="ar-num">P&amp;L</th>
                     <th class="ar-num">Weight</th><th class="ar-num">Target</th>
                   </tr>
@@ -84,20 +91,6 @@
             <div class="ar-card__body"><div class="ar-chart"><canvas id="weightsChart"></canvas></div></div>
           </section>
         </div>
-        <section class="ar-card ar-card--flush">
-          <div class="ar-card__header">
-            <h2 class="ar-card__title">AI sub-themes</h2>
-          </div>
-          <div class="ar-card__body">
-            <p class="ar-subtle" id="aiSubNote">Direct holding weight. The look-through warn cap is separate.</p>
-          </div>
-          <div class="ar-table-wrap">
-            <table class="ar-table" id="aiSubTable">
-              <thead><tr><th>Sub-theme</th><th>Holdings</th><th class="ar-num">Weight</th><th class="ar-num">Value (USD)</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
       </section>
 
       <section id="tab-watchlist" class="ar-page hidden" role="tabpanel">
@@ -136,18 +129,6 @@
                 <label class="ar-label" for="wlType">Type</label>
                 <select class="ar-select" id="wlType"><option value="stock">stock</option><option value="etf">etf</option></select>
               </div>
-              <div class="ar-field">
-                <label class="ar-label" for="wlSub">Sub-theme</label>
-                <select class="ar-select" id="wlSub">
-                  <option value="">None</option>
-                  <option value="ai_energy">AI energy</option>
-                  <option value="ai_memory_storage">AI memory &amp; storage</option>
-                  <option value="ai_compute_semis">AI compute &amp; semis</option>
-                  <option value="ai_network_fibre">AI network &amp; fibre</option>
-                  <option value="ai_cloud_software">AI cloud &amp; software</option>
-                  <option value="physical_ai">Physical AI</option>
-                </select>
-              </div>
               <button class="ar-btn ar-btn--primary" id="wlAdd" type="button">
                 <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#plus"/></svg>
                 <span class="ar-btn__label">Add</span>
@@ -164,20 +145,10 @@
           </div>
         </section>
         <section class="ar-card ar-card--flush">
-          <div class="ar-card__header"><h2 class="ar-card__title">AI sub-themes</h2></div>
-          <div class="ar-card__body"><p class="ar-subtle">Candidates in each bucket. Exposure is on the Portfolio tab, because these names are not held.</p></div>
-          <div class="ar-table-wrap">
-            <table class="ar-table" id="wlSubTable">
-              <thead><tr><th>Sub-theme</th><th>Candidates</th><th class="ar-num">Count</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-        <section class="ar-card ar-card--flush">
           <div class="ar-card__header"><h2 class="ar-card__title">Holdings and candidates</h2></div>
           <div class="ar-table-wrap">
             <table class="ar-table" id="wlTable">
-              <thead><tr><th>Ticker</th><th>Origin</th><th>Sector</th><th>Instrument</th><th>Analysis sleeve</th><th>Sub-theme</th><th class="ar-num"><span class="ar-sr-only">Remove candidate</span></th></tr></thead>
+              <thead><tr><th>Ticker</th><th>Origin</th><th>Sector</th><th>Instrument</th><th>Analysis sleeve</th><th class="ar-num"><span class="ar-sr-only">Remove candidate</span></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -227,8 +198,8 @@
             <table class="ar-table" id="fmTrades">
               <thead>
                 <tr>
-                  <th>Ticker</th><th>Action</th><th class="ar-num">Shares</th>
-                  <th class="ar-num">Est. price (USD)</th><th>Agent</th><th>vs agent</th><th>Rationale</th>
+                  <th>Status</th><th>Account</th><th>Ticker</th><th>Action</th><th class="ar-num">Requested</th><th class="ar-num">Effective</th>
+                  <th class="ar-num">Est. price</th><th class="ar-num">Fee</th><th class="ar-num">Cash effect</th><th>Reason</th><th>Agent</th><th>Rationale</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -580,24 +551,26 @@
     </div>
   </dialog>
 
-  <dialog class="ar-dialog" id="tigerImportModal" aria-labelledby="tigerImportTitle">
+  <dialog class="ar-dialog" id="brokerImportModal" aria-labelledby="brokerImportTitle">
     <div class="ar-dialog__header">
       <div class="ar-dialog__icon"><svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#briefcase-business"/></svg></div>
-      <div><h3 class="ar-dialog__title" id="tigerImportTitle">Review Tiger portfolio</h3>
-        <p class="ar-caption">Read-only OAuth query. Import replaces the Argus book with supported US stock positions and cash.</p></div>
+      <div><h3 class="ar-dialog__title" id="brokerImportTitle">Review broker account</h3>
+        <p class="ar-caption">Read-only snapshot. Import updates only the selected account. Moomoo USD cash may be unknown.</p></div>
     </div>
     <div class="ar-dialog__body">
-      <label class="ar-field"><span>Authorized account</span><select id="tigerAccount"><option value="">Load authorized accounts…</option></select></label>
-      <button type="button" class="ar-btn" id="tigerFetch">Fetch preview</button>
-      <div id="tigerPreviewBody" class="ar-subtle" aria-live="polite"></div>
-      <label class="ar-check hidden" id="tigerReplaceWrap"><input type="checkbox" id="tigerReplace"/><span>I reviewed this snapshot and want to replace the current positions and cash.</span></label>
-      <label class="ar-check hidden" id="tigerStockOnlyWrap"><input type="checkbox" id="tigerStockOnly"/><span>I understand this replaces Argus with stock positions only; other instrument types will be excluded.</span></label>
-      <label class="ar-check hidden" id="tigerEmptyWrap"><input type="checkbox" id="tigerEmpty"/><span>The account has zero positions; replace the current holdings with zero positions.</span></label>
+      <label class="ar-field"><span>Broker</span><select id="brokerType"><option value="tiger">Tiger</option><option value="moomoo">Moomoo Singapore</option></select></label>
+      <label class="ar-field"><span>Authorized account</span><select id="brokerAccount"><option value="">Load authorized accounts…</option></select></label>
+      <button type="button" class="ar-btn" id="brokerFetch">Fetch preview</button>
+      <div id="brokerPreviewBody" class="ar-subtle" aria-live="polite"></div>
+      <fieldset class="ar-field hidden" id="legacyChoiceWrap"><legend>Legacy book choice</legend><label class="ar-check"><input type="radio" name="legacyChoice" value="false"/><span>Add this as a separate account and keep the legacy book.</span></label><label class="ar-check"><input type="radio" name="legacyChoice" value="true"/><span>Replace the legacy Argus book with this account.</span></label></fieldset>
+      <label class="ar-check hidden" id="brokerReplaceWrap"><input type="checkbox" id="brokerReplace"/><span>I reviewed this snapshot and want to update only this account.</span></label>
+      <label class="ar-check hidden" id="brokerStockOnlyWrap"><input type="checkbox" id="brokerStockOnly"/><span>I understand this snapshot covers supported US stocks only; other assets/currencies are excluded.</span></label>
+      <label class="ar-check hidden" id="brokerEmptyWrap"><input type="checkbox" id="brokerEmpty"/><span>The account has zero positions; replace its holdings with zero positions.</span></label>
     </div>
     <div class="ar-dialog__actions">
       <div class="ar-btn-group ar-btn-group--equal">
-        <button type="button" class="ar-btn ar-btn--ghost" id="tigerCancel">Cancel</button>
-        <button type="button" class="ar-btn ar-btn--primary" id="tigerApply" disabled>Replace with stocks only</button>
+        <button type="button" class="ar-btn ar-btn--ghost" id="brokerCancel">Cancel</button>
+        <button type="button" class="ar-btn ar-btn--primary" id="brokerApply" disabled>Apply account snapshot</button>
       </div>
     </div>
   </dialog>
@@ -630,7 +603,10 @@
   </dialog>
 
   <div class="ar-toast-stack" id="toasts" aria-live="polite"></div>
-  <script src="/static/tiger-preview-guard.js"></script>
-  <script src="/static/app.js?v=stock-import-confirmation-1"></script>
+  <script src="/static/tiger-preview-guard.js?v=broker-preview-guard-2"></script>
+  <script src="/static/formatters.js"></script>
+  <script src="/static/portfolio-holdings-render.js"></script>
+  <script src="/static/fund-trade-render.js"></script>
+  <script src="/static/app.js?v=portfolio-accounts-ui-1"></script>
 </body>
 </html>

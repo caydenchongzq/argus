@@ -17,6 +17,18 @@ def main() -> int:
         ta = root / "fake-ta"
         fm = ta / "addons" / "fund_manager"
         fm.mkdir(parents=True)
+        real_addons = HERE.parent / "TradingAgents" / "addons"
+        (ta / "addons" / "portfolio_book.py").write_text(
+            (real_addons / "portfolio_book.py").read_text(encoding="utf-8"), encoding="utf-8")
+        (fm / "trade_validation.py").write_text(
+            (real_addons / "fund_manager" / "trade_validation.py").read_text(encoding="utf-8"),
+            encoding="utf-8")
+        (ta / "dotenv.py").write_text(
+            "from pathlib import Path\n"
+            "def load_dotenv(path, override=False):\n"
+            "    assert Path(path).parent.resolve() == Path(__file__).parent.resolve()\n"
+            "    return Path(path).is_file()\n", encoding="utf-8")
+        (ta / ".env").write_text("EXEC_TA_TEST_DUMMY=fixture-only\n", encoding="utf-8")
         symbols = ta / "tradingagents" / "dataflows"
         symbols.mkdir(parents=True)
         (ta / "tradingagents" / "__init__.py").write_text("\n", encoding="utf-8")
@@ -29,7 +41,9 @@ def main() -> int:
             (ta / f"{module}.py").write_text("\n", encoding="utf-8")
         data = root / "data"
         (data / "fund_manager" / "run_costs").mkdir(parents=True)
-        (data / "my_book.json").write_text(json.dumps({"positions": [{"ticker": "AAA"}, {"ticker": "BBB"}]}), encoding="utf-8")
+        (data / "my_book.json").write_text(json.dumps({"positions": [
+            {"ticker": "AAA", "quantity": 1}, {"ticker": "BBB", "quantity": 1}],
+            "cash": 0, "currency": "USD"}), encoding="utf-8")
         (data / "watchlist.json").write_text(json.dumps([{"ticker": "CCC"}]), encoding="utf-8")
         (data / "targets.json").write_text("{}\n", encoding="utf-8")
         (ta / "addons" / "cost_ledger.py").write_text(
@@ -40,7 +54,13 @@ def main() -> int:
             "print('ANALYSIS_DATE=2025-01-02')\nprint('PREFLIGHT_STATUS=ok')\n", encoding="utf-8")
         (fm / "fund_manager.py").write_text(
             "import os, pathlib, sys\n"
+            "import tradingagents\n"
+            "from tradingagents.dataflows.symbols import normalize_symbol\n"
+            "from trade_validation import parse_trade_policy\n"
             "assert '--no-llm' in sys.argv\n"
+            "assert pathlib.Path(sys.path[0]).resolve() == pathlib.Path(__file__).parent.resolve()\n"
+            "assert normalize_symbol('AAA') == 'AAA'\n"
+            "assert parse_trade_policy({})['fee_per_order_usd'] == 3.0\n"
             "assert pathlib.Path(os.environ['TRADINGAGENTS_RESULTS_DIR']).is_absolute()\n"
             "pathlib.Path(os.environ['FM_DATA_ROOT'], 'runner-invoked.txt').write_text('ok')\n",
             encoding="utf-8")
@@ -52,7 +72,7 @@ def main() -> int:
         proc = subprocess.run([
             sys.executable, str(HERE / "run_analysis.py"), "--ta-root", str(ta),
             "--no-llm", "--include-watchlist", "--tickers", "AAA",
-        ], env={**os.environ, "FM_DATA_ROOT": str(data), "ARGUS_RUN_RESULT_FILE": str(result_path)},
+        ], env={**os.environ, "PYTHONPATH": str(ta), "FM_DATA_ROOT": str(data), "ARGUS_RUN_RESULT_FILE": str(result_path)},
             cwd=ta, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20)
         assert proc.returncode == 0, proc.stdout
         assert "STAGE=preflight" in proc.stdout and "STAGE=fund_manager" in proc.stdout, proc.stdout
@@ -60,6 +80,26 @@ def main() -> int:
         assert (data / "runner-invoked.txt").read_text(encoding="utf-8") == "ok"
         assert json.loads(result_path.read_text(encoding="utf-8"))["status"] == "succeeded"
         assert json.loads(initial_state_path.read_text(encoding="utf-8")) == original_state
+        (data / "targets.json").write_text(json.dumps({"trade_policy": {"fee_per_order_usd": -1}}), encoding="utf-8")
+        scout = subprocess.run([
+            sys.executable, str(HERE / "run_analysis.py"), "--ta-root", str(ta),
+            "--data-root", str(data), "--scout-mode", "weekly", "--scout-llm",
+        ], env={**os.environ, "PYTHONPATH": str(ta), "FM_DATA_ROOT": str(data)}, cwd=ta, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20)
+        assert scout.returncode == 78 and "RUN_PREFLIGHT_INVALID=trade policy" in scout.stdout, scout.stdout
+        assert "STAGE=budget:" not in scout.stdout and "STAGE=theme_scout" not in scout.stdout, scout.stdout
+        scout_dir = ta / "addons" / "theme_scout"
+        scout_dir.mkdir()
+        (scout_dir / "theme_scout.py").write_text(
+            "import sys\nassert '--no-llm' in sys.argv, sys.argv\nprint('SCOUT_FREE_ONLY=1')\n",
+            encoding="utf-8")
+        free_scout = subprocess.run([
+            sys.executable, str(HERE / "run_analysis.py"), "--ta-root", str(ta),
+            "--data-root", str(data), "--scout-mode", "weekly", "--scout-llm", "--no-llm",
+        ], env={**os.environ, "PYTHONPATH": str(ta), "FM_DATA_ROOT": str(data)}, cwd=ta, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20)
+        assert free_scout.returncode == 0 and "SCOUT_FREE_ONLY=1" in free_scout.stdout, free_scout.stdout
+        assert "STAGE=budget:" not in free_scout.stdout, free_scout.stdout
     print("argus runner offline check: ok (entry point, stages, no-paid path, result sidecar)")
     return 0
 

@@ -39,15 +39,118 @@ def main() -> int:
         import server
 
         c = TestClient(server.app, base_url="http://127.0.0.1")
+        assert server._has_legacy_account()
+        assert server._bound_legacy_choice({"replace_legacy": False}, False) is False
+        for preview_choice, changed in ((False, True), (None, True), (True, False)):
+            try:
+                server._bound_legacy_choice({"replace_legacy": preview_choice}, changed)
+            except Exception as exc:
+                assert getattr(exc, "status_code", None) == 409, exc
+            else:
+                raise AssertionError("apply-time legacy choice changed after preview")
+        (data / "my_book.json").write_text(json.dumps({"schema_version": 2, "accounts": [],
+                                                        "cash": None, "currency": "USD", "positions": []}),
+                                             encoding="utf-8")
+        assert not server._has_legacy_account()
+        assert server._bound_legacy_choice({"replace_legacy": None}, False) is False
+        try:
+            server._bound_legacy_choice({"replace_legacy": None}, True)
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 409, exc
+        else:
+            raise AssertionError("add-account preview was changed to replace legacy")
+        (data / "my_book.json").write_text(json.dumps({
+            "schema_version": 2,
+            "accounts": [{"account_id": "legacy", "broker": "legacy", "currency": "USD",
+                          "cash": 0, "positions": []}],
+            "cash": 0, "currency": "USD", "positions": [],
+        }), encoding="utf-8")
+        assert server._has_legacy_account(), "v2 wrapped legacy account was missed"
+        (data / "my_book.json").write_text(json.dumps({"cash": 0, "positions": []}), encoding="utf-8")
         token = c.get("/api/session").json()["token"]
         headers = {"X-Argus-Confirm": token, "Origin": "http://127.0.0.1"}
+        from portfolio_import import book_version
+        now = datetime.now(timezone.utc).isoformat()
+        def apply_fixture(broker, preview_id, record, choice):
+            preview_dir = server.RUNS_DIR / ("tiger-previews" if broker == "tiger" else "broker-previews")
+            preview_dir.mkdir(parents=True, exist_ok=True)
+            server._write_json(preview_dir / f"{preview_id}.json", record)
+            return c.post(f"/api/{broker}/apply", json={
+                "preview_id": preview_id, "confirm": True, "confirm_stock_only": True,
+                "replace_legacy": choice,
+            }, headers=headers)
+
+        tiger_account = {
+            "account_id": "tiger_fixture_account", "broker": "tiger", "label": "Tiger 1",
+            "scope": "US_STOCKS", "currency": "USD", "cash": 100, "available_cash": None,
+            "fetched_at": now, "positions": [{"ticker": "AAA", "quantity": 2, "average_price": 10}],
+        }
+        tiger_preview = {
+            "created_at": now, "book_version": book_version(server.BOOK), "replace_legacy": False,
+            "snapshot": {"scope": "stocks_only", "can_apply": True,
+                         "book": {"cash": 100, "currency": "USD", "positions": [
+                             {"ticker": "AAA", "quantity": 2, "average_price": 10}]},
+                         "account": tiger_account},
+        }
+        flipped_tiger = apply_fixture("tiger", "tiger_fixture_preview_flip_0001", tiger_preview, True)
+        assert flipped_tiger.status_code == 409, flipped_tiger.text
+        added_tiger = apply_fixture("tiger", "tiger_fixture_preview_add_00001", tiger_preview, False)
+        assert added_tiger.status_code == 200, added_tiger.text
+        refreshed_tiger = {**tiger_preview, "created_at": datetime.now(timezone.utc).isoformat(),
+                           "book_version": book_version(server.BOOK)}
+        tiger_again = apply_fixture("tiger", "tiger_fixture_preview_refresh_01", refreshed_tiger, False)
+        assert tiger_again.status_code == 200, tiger_again.text
+        saved_book = json.loads((data / "my_book.json").read_text(encoding="utf-8"))
+        assert len(saved_book["accounts"]) == 2
+        assert sum(a["account_id"] == tiger_account["account_id"] for a in saved_book["accounts"]) == 1
+
+        moomoo_account = {
+            "account_id": "moomoo_fixture_account", "broker": "moomoo_sg", "label": "Moomoo 1",
+            "scope": "US_STOCKS", "currency": "USD", "cash": None, "available_cash": None,
+            "fetched_at": now, "positions": [{"ticker": "AAA", "quantity": 1, "average_price": None}],
+        }
+        moomoo_preview = {
+            "created_at": datetime.now(timezone.utc).isoformat(), "book_version": book_version(server.BOOK),
+            "replace_legacy": True,
+            "snapshot": {"scope": "stocks_only", "can_apply": True, "positions": moomoo_account["positions"],
+                         "account": moomoo_account},
+        }
+        flipped_moomoo = apply_fixture("moomoo", "moomoo_fixture_preview_flip_0001", moomoo_preview, False)
+        assert flipped_moomoo.status_code == 409, flipped_moomoo.text
+        added_moomoo = apply_fixture("moomoo", "moomoo_fixture_preview_replace_001", moomoo_preview, True)
+        assert added_moomoo.status_code == 200, added_moomoo.text
+        original_latest_stats = server._latest_stats
+        server._latest_stats = lambda: {"positions": [{"ticker": "AAA", "price": 10}]}
+        combined = c.get("/api/portfolio").json()
+        server._latest_stats = original_latest_stats
+        assert combined["cash"] is None and combined["total_market_value"] is None, combined
+        assert combined["holdings_value"] == 30 and combined["holdings_value_complete"] is True, combined
+        assert combined["known_cash_subtotal"] == 100 and combined["known_cash_complete"] is False, combined
+        assert {row["cash_known"] for row in combined["accounts"]} == {False, True}
+
+        # First import into a missing book defaults null/false to add-account,
+        # and must not manufacture a synthetic empty legacy cash account.
+        server.BOOK.unlink()
+        first_moomoo_preview = {
+            "created_at": datetime.now(timezone.utc).isoformat(), "book_version": "missing",
+            "replace_legacy": None,
+            "snapshot": {"scope": "stocks_only", "can_apply": True, "positions": moomoo_account["positions"],
+                         "account": moomoo_account},
+        }
+        first_moomoo = apply_fixture("moomoo", "moomoo_fixture_preview_first_001", first_moomoo_preview, False)
+        assert first_moomoo.status_code == 200, first_moomoo.text
+        first_book = json.loads((data / "my_book.json").read_text(encoding="utf-8"))
+        assert len(first_book["accounts"]) == 1 and first_book["cash"] is None
+        broker_backups = set(data.glob("*.bak*"))
+        server.BOOK.write_text(json.dumps({"cash": 0, "currency": "USD", "positions": []}), encoding="utf-8")
+
         r = c.post("/api/watchlist", json={"ticker": "BBB", "sector": "Y", "type": "stock"}, headers=headers)
         assert r.status_code == 200, r.text
         r = c.delete("/api/watchlist/AAA", headers=headers)
         assert r.status_code == 200, r.text
         log = [json.loads(x) for x in (data / "watchlist_log.jsonl").read_text(encoding="utf-8").splitlines()]
         assert [e["action"] for e in log] == ["add", "drop"], log
-        assert list(data.glob("*.bak*")) == [], list(data.glob("*.bak*"))
+        assert set(data.glob("*.bak*")) == broker_backups, list(data.glob("*.bak*"))
         r = c.post("/api/watchlist/undo", json={}, headers=headers)
         assert r.status_code == 200, r.text
         tickers = sorted(i["ticker"] for i in r.json()["items"])
@@ -61,18 +164,19 @@ def main() -> int:
         s = c.get("/api/spend").json()
         assert s["spent_usd"] == 1.25 and s["budget_usd"] == 25 and s["budget_enabled"] is False, s
         current_settings = c.get("/api/settings").json()
-        assert current_settings["max_adds_per_week"] is None
-        assert current_settings["max_drops_per_week"] is None
+        assert "max_adds_per_week" not in current_settings
+        assert "max_drops_per_week" not in current_settings
         assert current_settings["cooldown_days"] == 14
         saved_settings = c.put("/api/settings", json={
             "weekly_budget_enabled": False, "weekly_budget_usd": 40,
-            "max_adds_per_week": None, "max_drops_per_week": None,
             "max_candidates": 100, "max_stocks_per_sector": 10,
         }, headers=headers)
         assert saved_settings.status_code == 200, saved_settings.text
         targets = json.loads((data / "targets.json").read_text(encoding="utf-8"))
         assert targets["weekly_budget_usd"] == 40 and targets["budget"]["weekly_usd"] == 40, targets
         assert targets["budget"]["enabled"] is False
+        assert "max_adds_per_week" not in targets.get("watchlist_curator", {})
+        assert "max_drops_per_week" not in targets.get("watchlist_curator", {})
         assert c.get("/api/spend").json()["budget_usd"] == 40
         limited = c.put("/api/settings", json={
             "weekly_budget_enabled": False, "weekly_budget_usd": 40,
@@ -376,6 +480,11 @@ def main() -> int:
                              "sectors": ["XLK", "XLY", "XLV"]}
             scout_preview = c.post("/api/theme-scout/manifest", json=scout_request)
             assert scout_preview.status_code == 200, scout_preview.text
+            saved_targets_text = server.TARGETS.read_text(encoding="utf-8")
+            server._write_json(server.TARGETS, {"trade_policy": {"fee_per_order_usd": -1}})
+            invalid_scout_policy = c.post("/api/theme-scout/manifest", json=scout_request)
+            assert invalid_scout_policy.status_code == 400, invalid_scout_policy.text
+            server.TARGETS.write_text(saved_targets_text, encoding="utf-8")
             scout_manifest = scout_preview.json()["manifest"]
             assert scout_manifest["single_call"] and scout_manifest["model"]
             assert scout_manifest["cost_estimate"]["verified_current"] is False
@@ -431,6 +540,12 @@ def main() -> int:
         fake_ta = tmp / "fake-ta"
         fm = fake_ta / "addons" / "fund_manager"
         fm.mkdir(parents=True)
+        real_addons = HERE.parent / "TradingAgents" / "addons"
+        (fake_ta / "addons" / "portfolio_book.py").write_text(
+            (real_addons / "portfolio_book.py").read_text(encoding="utf-8"), encoding="utf-8")
+        (fm / "trade_validation.py").write_text(
+            (real_addons / "fund_manager" / "trade_validation.py").read_text(encoding="utf-8"),
+            encoding="utf-8")
         symbols = fake_ta / "tradingagents" / "dataflows"
         symbols.mkdir(parents=True)
         (fake_ta / "tradingagents" / "__init__.py").write_text("\n", encoding="utf-8")
@@ -458,7 +573,8 @@ def main() -> int:
             encoding="utf-8")
         (fake_ta / "addons" / "agent_config.json").write_text("{}\n", encoding="utf-8")
         (fake_ta / "addons" / "openrouter_models.json").write_text("{}\n", encoding="utf-8")
-        (data / "my_book.json").write_text(json.dumps({"positions": [{"ticker": "AAA"}]}), encoding="utf-8")
+        (data / "my_book.json").write_text(json.dumps({
+            "positions": [{"ticker": "AAA", "quantity": 1}], "cash": 0, "currency": "USD"}), encoding="utf-8")
         run = subprocess.run([
             sys.executable, str(HERE / "run_analysis.py"), "--ta-root", str(fake_ta), "--no-llm",
             "--run-agents", "--include-watchlist", "--tickers", "AAA",

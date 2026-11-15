@@ -1,5 +1,5 @@
 /* Pure response guard, shared with the credential-free out-of-order fixture. */
-globalThis.argusTigerPreviewIsCurrent = function (
+globalThis.argusBrokerPreviewIsCurrent = function (
   requestId, latestRequestId, requestedAccountKey, selectedAccountKey, responseAccountKey, modalOpen,
 ) {
   return modalOpen
@@ -7,3 +7,5 @@ globalThis.argusTigerPreviewIsCurrent = function (
     && requestedAccountKey === selectedAccountKey
     && requestedAccountKey === responseAccountKey;
 };
+// Backwards-compatible name for existing credential-free Tiger fixtures.
+globalThis.argusTigerPreviewIsCurrent = globalThis.argusBrokerPreviewIsCurrent;

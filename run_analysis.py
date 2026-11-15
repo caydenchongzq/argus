@@ -143,6 +143,10 @@ def _main(argv: list[str] | None = None) -> int:
     ap.add_argument("--manifest-analysis-tickers-json", default="",
                     help="expected selected ticker execution scope from the reviewed manifest")
     args = ap.parse_args(argv)
+    # This switch suppresses every model stage, including a conflicting scout
+    # LLM flag supplied by a caller outside the dashboard.
+    if args.no_llm:
+        args.scout_llm = False
     if args.anl_only and args.no_llm:
         ap.error("--anl-only requires paid ticker analysis and cannot be combined with --no-llm")
     if args.anl_only and not args.tickers:
@@ -178,6 +182,20 @@ def _main(argv: list[str] | None = None) -> int:
             "TRADINGAGENTS_CACHE_DIR": str(root / "cache"),
             "TZ": "EST5EDT,M3.2.0,M11.1.0",
         })
+        paid_execution = (not args.scout_mode or
+                          (args.scout_mode == "weekly" and args.scout_llm))
+        if paid_execution:
+            if str(addons) not in sys.path:
+                sys.path.insert(0, str(addons))
+            try:
+                from fund_manager.trade_validation import parse_trade_policy
+                targets_path = root / "targets.json"
+                targets = json.loads(targets_path.read_text(encoding="utf-8")) if targets_path.is_file() else {}
+                parse_trade_policy(targets)
+            except Exception as exc:
+                print(f"RUN_PREFLIGHT_INVALID=trade policy is invalid: {exc}", flush=True)
+                _set_run_state("failed", exit_code=78, error="trade policy is invalid")
+                return 78
         if args.manifest_input_fingerprint:
             addon_path = str(addons)
             if addon_path not in sys.path:
@@ -235,6 +253,20 @@ def _main(argv: list[str] | None = None) -> int:
         if not book_path.is_file():
             print(f"Portfolio book missing: {book_path}", flush=True)
             return 2
+        if str(addons) not in sys.path:
+            sys.path.insert(0, str(addons))
+        try:
+            from portfolio_book import normalize_book
+            raw_book = json.loads(book_path.read_text(encoding="utf-8"))
+            normalized_book = normalize_book(raw_book)
+            if raw_book.get("schema_version") == 2 and any(
+                    raw_book.get(key) != normalized_book.get(key)
+                    for key in ("cash", "currency", "positions")):
+                raise ValueError("derived portfolio projection does not match canonical accounts; refresh the account book")
+        except Exception as exc:
+            print(f"RUN_PREFLIGHT_INVALID=portfolio or trade policy is invalid: {exc}", flush=True)
+            _set_run_state("failed", exit_code=78, error="portfolio or trade policy is invalid")
+            return 78
         watch_path = root / "watchlist.json"
         agent_holdings, agent_candidates = _tickers(book_path, watch_path, args.tickers,
                                                       not args.no_watchlist)

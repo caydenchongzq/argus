@@ -1,0 +1,5 @@
+# Optional read-only Moomoo Singapore broker import support.
+# Also install/start the official Moomoo OpenD release compatible with your
+# Moomoo client, sign in to the FUTUSG account, and allow local API access on
+# 127.0.0.1:11111 before using the dashboard import.
+moomoo-api==10.12.7208

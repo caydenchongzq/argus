@@ -7,6 +7,7 @@ const MINUS = "\u2212";
 const state = {
   tab: "portfolio",
   portfolio: null,
+  portfolioAccountId: "all",
   watchlist: [],
   watchlistProposal: null,
   reports: [],
@@ -103,10 +104,7 @@ function moneyAbs(n, abbreviate) {
 }
 
 function moneyLevel(n, abbreviate = false) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
-  const v = Number(n);
-  const body = moneyAbs(v, abbreviate);
-  return v < 0 ? `${MINUS}${body}` : body;
+  return globalThis.argusFormatters.moneyLevel(n, abbreviate);
 }
 
 function moneyChange(n, abbreviate = false) {
@@ -147,10 +145,7 @@ function price(n) {
 }
 
 function qty(n) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
-  const v = Number(n);
-  if (Number.isInteger(v)) return v.toLocaleString();
-  return String(Number(v.toFixed(4)));
+  return globalThis.argusFormatters.quantity(n);
 }
 
 function ratingClass(r) {
@@ -224,7 +219,8 @@ async function loadSettings() {
     settings.max_candidates == null ? "unlimited saved candidates" : `${settings.max_candidates} saved candidates`,
     settings.max_stocks_per_sector == null ? "unlimited stocks per sector" : `${settings.max_stocks_per_sector} stocks per sector`,
   ].join("; ");
-  $("#settingsStatus").textContent = `Weekly spending check ${settings.weekly_budget_enabled ? `enabled at $${Number(settings.weekly_budget_usd).toFixed(2)}` : "disabled"}; ${limits}; ${settings.cooldown_days}-day cooldown. Weekly add and drop caps are unlimited.`;
+  const cooldown = settings.cooldown_days == null ? "14-day" : `${settings.cooldown_days}-day`;
+  $("#settingsStatus").textContent = `Weekly spending check ${settings.weekly_budget_enabled ? `enabled at $${Number(settings.weekly_budget_usd).toFixed(2)}` : "disabled"}; ${limits}; ${cooldown} cooldown. Weekly add and drop caps are unlimited.`;
 }
 
 function nullableNumber(id) {
@@ -252,8 +248,6 @@ async function persistSettings() {
   const body = {
     weekly_budget_enabled: $("#settingsBudgetEnabled").checked,
     weekly_budget_usd: Number($("#settingsBudgetUsd").value),
-    max_adds_per_week: null,
-    max_drops_per_week: null,
     max_candidates: nullableNumber("#settingsMaxCandidates"),
     max_stocks_per_sector: nullableNumber("#settingsMaxSector"),
   };
@@ -356,15 +350,33 @@ async function loadPortfolio() {
   state.portfolio = data;
   state.bookTickers = (data.positions || []).map((p) => p.ticker);
   setHeaderAsOf(data);
-  $("#pfSub").textContent = data.total_market_value != null
-    ? `NAV ${moneyLevel(data.total_market_value)} · cash ${moneyLevel(data.cash)}`
-    : `Cash ${moneyLevel(data.cash)} · mark prices when a fund-manager stats file exists`;
+  const cashKnown = data.cash_known !== false && data.cash != null;
+  const accounts = data.accounts || [];
+  const unknownCashAccounts = accounts.filter((a) => a.cash_known === false || a.cash == null);
+  const accountSelect = $("#pfAccountFilter");
+  const previousAccount = state.portfolioAccountId || accountSelect.value || "all";
+  accountSelect.innerHTML = `<option value="all">All accounts</option>${accounts
+    .filter((a) => a.account_id != null)
+    .map((a) => `<option value="${esc(a.account_id)}">${esc(a.label || a.account_id)} · ${esc(a.broker || "Legacy")}</option>`).join("")}`;
+  state.portfolioAccountId = accounts.some((a) => a.account_id === previousAccount) ? previousAccount : "all";
+  accountSelect.value = state.portfolioAccountId;
+  $("#pfSub").textContent = cashKnown && data.total_market_value != null
+    ? `Equity ${moneyLevel(data.total_market_value)} · cash ${moneyLevel(data.cash)}`
+    : unknownCashAccounts.length
+      ? `Holdings ${moneyLevel(data.holdings_value)} · known cash subtotal ${moneyLevel(data.known_cash_subtotal)} · total equity unavailable because at least one account's USD cash is unknown`
+      : `Holdings ${moneyLevel(data.holdings_value)} · cash ${moneyLevel(data.cash)} · total value unavailable because one or more holding prices are missing`;
+  $("#pfAccountsNote").textContent = unknownCashAccounts.length
+    ? `${unknownCashAccounts.length} account(s) have unknown USD cash; totals and cash percentages are partial/unavailable.`
+    : `${accounts.length} account(s) included in the combined holdings.`;
+  $("#pfAccounts tbody").innerHTML = globalThis.argusRenderPortfolioAccounts(accounts, {
+    esc, moneyLevel,
+  });
 
-  const pnl = data.account?.unrealized_pnl;
+  const pnl = data.account?.unrealized_pnl ?? null;
   const change = moneyChange(pnl, true);
   const allPriced = (data.positions || []).length > 0 && (data.positions || []).every((p) => p.price != null);
   let pnlPct = null;
-  if (allPriced && pnl != null && data.total_cost != null) {
+  if (cashKnown && allPriced && pnl != null && data.total_cost != null) {
     const basis = Number(data.total_cost) - Number(data.cash || 0);
     if (basis) {
       const raw = (pnl / basis) * 100;
@@ -386,33 +398,7 @@ async function loadPortfolio() {
     <article class="ar-stat ar-span-3"><span class="ar-stat__label">Positions</span><span class="ar-stat__value">${data.positions.length}</span><span class="ar-stat__delta"><span class="ar-subtle">Currency ${esc(data.currency || "USD")}</span></span></article>
   `;
 
-  const subLabel = {};
-  (data.ai_subthemes || []).forEach((b) => {
-    if (b && b.id) subLabel[b.id] = b.label || b.id;
-  });
-  const tb = $("#pfTable tbody");
-  tb.innerHTML = data.positions.map((p) => {
-    const rowChange = moneyChange(p.unrealized_pnl);
-    const rowPct = pctChange(p.unrealized_pnl_pct, 2);
-    const pnlCell = rowChange
-      ? `${deltaHtml(rowChange)}${rowPct ? ` ${deltaHtml(rowPct)}` : ""}`
-      : `<span class="ar-subtle">—</span>`;
-    const stale = p.price == null ? "is-stale" : "";
-    return `<tr class="${stale}">
-      <td class="ar-ticker">${esc(p.ticker)}</td>
-      <td class="ar-subtle">${esc(p.name || "")}</td>
-      <td class="ar-subtle">${esc(p.sub_theme ? (subLabel[p.sub_theme] || p.sub_theme) : "—")}</td>
-      <td>${esc(p.instrument_type || "Unknown")}</td>
-      <td>${esc(p.sleeve === "core_etf" ? "ETF" : p.sleeve === "swing" ? "Stock / cash" : "Unclassified")}</td>
-      <td class="ar-num">${qty(p.quantity)}</td>
-      <td class="ar-num">${price(p.average_price)}</td>
-      <td class="ar-num">${price(p.price)}</td>
-      <td class="ar-num">${moneyLevel(p.market_value)}</td>
-      <td class="ar-num">${pnlCell}</td>
-      <td class="ar-num">${pctLevel(p.weight_pct, 1)}</td>
-      <td class="ar-num ar-subtle">${p.target_pct != null ? pctLevel(p.target_pct, 1) : "—"}</td>
-    </tr>`;
-  }).join("");
+  renderPortfolioHoldings(data);
 
   const sleeveNote = $("#pfSleeve");
   if (sleeveNote) {
@@ -421,17 +407,31 @@ async function loadPortfolio() {
     const unknown = (data.sleeves || {}).unclassified || {};
     const corePnl = moneyChange(core.unrealized_pnl);
     const swingPnl = moneyChange(swing.unrealized_pnl);
-    sleeveNote.innerHTML = `Instrument type grouping only; long-term / swing roles are proposed separately. ETFs ${esc(pctLevel(core.weight_pct, 1))} · ${corePnl ? deltaHtml(corePnl) : "—"} · Stocks and cash ${esc(pctLevel(swing.weight_pct, 1))} · ${swingPnl ? deltaHtml(swingPnl) : "—"} · Unclassified ${esc(pctLevel(unknown.weight_pct, 1))}`;
+    sleeveNote.innerHTML = state.portfolioAccountId === "all"
+      ? `Instrument type grouping only; long-term / swing roles are proposed separately. ETFs ${esc(pctLevel(core.weight_pct, 1))} · ${corePnl ? deltaHtml(corePnl) : "—"} · Stocks and cash ${esc(pctLevel(swing.weight_pct, 1))} · ${swingPnl ? deltaHtml(swingPnl) : "—"} · Unclassified ${esc(pctLevel(unknown.weight_pct, 1))}`
+      : "Single-account holding details; consolidated allocation figures are hidden while an account is selected.";
   }
 
+  const riskNote = $("#pfRiskNote");
+  if (riskNote) riskNote.textContent = `AI look-through warning cap: ${pctLevel(data.ai_sleeve_cap_pct, 0)}. This is a portfolio risk summary and is separate from sector and instrument classifications.`;
   renderWeightsChart(data);
-  const note = $("#aiSubNote");
-  if (note) {
-    note.textContent = `Direct holding weight. Look-through warn cap is ${pctLevel(data.ai_sleeve_cap_pct, 0)} (targets.json). SPY's sleeve fraction is not split into these rows.`;
-  }
-  const sub = $("#aiSubTable tbody");
-  if (sub) sub.innerHTML = renderSubthemeRows(data.ai_subthemes, true);
 }
+
+function renderPortfolioHoldings(data) {
+  const selected = state.portfolioAccountId || "all";
+  const account = (data.accounts || []).find((item) => item.account_id === selected);
+  $("#pfHoldingsNote").textContent = selected === "all"
+    ? "Combined holdings across accounts. Select an account to inspect its quantity, average cost, sellable shares and P&L."
+    : `${account?.label || "Selected account"}: quantities, acquisition costs and sellable shares are account-specific; weights are not consolidated.`;
+  $("#pfTable tbody").innerHTML = globalThis.argusRenderPortfolioHoldings(data, selected, {
+    esc, qty, price, moneyLevel, moneyChange, pctChange, deltaHtml, pctLevel,
+  });
+}
+
+$("#pfAccountFilter").addEventListener("change", (event) => {
+  state.portfolioAccountId = event.target.value || "all";
+  if (state.portfolio) renderPortfolioHoldings(state.portfolio);
+});
 
 function renderWeightsChart(data) {
   const labels = [];
@@ -444,11 +444,11 @@ function renderWeightsChart(data) {
   tickers.forEach((t) => {
     const row = data.weights.find((w) => w.ticker === t) || {};
     labels.push(t);
-    current.push(row.weight_pct ?? 0);
+    current.push(row.weight_pct ?? null);
     target.push(data.targets?.[t] ?? null);
   });
   labels.push("cash");
-  current.push(data.cash_pct ?? 0);
+  current.push(data.cash_pct ?? null);
   target.push(data.cash_target_pct ?? null);
 
   const ctx = $("#weightsChart");
@@ -484,30 +484,37 @@ function renderWeightsChart(data) {
   });
 }
 
-function renderSubthemeRows(rows, withValue) {
-  return (rows || []).map((b) => {
-    const names = (b.tickers || []).map((t) => t.weight_pct != null ? `${t.ticker} ${pctLevel(t.weight_pct, 1)}` : t.ticker).join(", ") || "—";
-    const value = withValue ? `<td class="ar-num">${moneyLevel(b.market_value)}</td>` : `<td class="ar-num">${b.count || 0}</td>`;
-    const weight = withValue ? `<td class="ar-num">${pctLevel(b.weight_pct, 1)}</td>` : "";
-    return `<tr><td>${esc(b.label || b.id)}</td><td class="ar-mono">${esc(names)}</td>${weight}${value}</tr>`;
-  }).join("");
+/* ---------- read-only broker account import ---------- */
+function currentBroker() { return $("#brokerType").value; }
+function selectedLegacyReplacement() { return document.querySelector('input[name="legacyChoice"]:checked')?.value === "true"; }
+function resetBrokerPreview(message = "Select an authorized account, then fetch a preview.") {
+  state.tigerPreviewRequestId += 1;
+  state.tigerPreview = null;
+  $("#brokerPreviewBody").textContent = message;
+  ["legacyChoiceWrap", "brokerReplaceWrap", "brokerStockOnlyWrap", "brokerEmptyWrap"].forEach((id) => $("#" + id).classList.add("hidden"));
+  document.querySelectorAll('input[name="legacyChoice"]').forEach((el) => { el.checked = false; });
+  ["brokerReplace", "brokerStockOnly", "brokerEmpty"].forEach((id) => { $("#" + id).checked = false; });
+  $("#brokerApply").disabled = true;
 }
 
-/* ---------- Tiger read-only import ---------- */
-function syncTigerApply() {
+function syncBrokerApply() {
   const preview = state.tigerPreview;
-  const empty = Boolean(preview && preview.positions.length === 0);
-  $("#tigerReplaceWrap").classList.toggle("hidden", !preview?.can_apply);
-  $("#tigerStockOnlyWrap").classList.toggle("hidden", !preview?.can_apply);
-  $("#tigerEmptyWrap").classList.toggle("hidden", !preview?.can_apply || !empty);
-  $("#tigerApply").disabled = !preview?.can_apply
-    || !$("#tigerReplace").checked
-    || !$("#tigerStockOnly").checked
-    || (empty && !$("#tigerEmpty").checked);
+  const empty = Boolean(preview && (preview.positions || []).length === 0);
+  const needsLegacyChoice = Boolean(preview?.replace_legacy_choice_required);
+  $("#legacyChoiceWrap").classList.toggle("hidden", !preview?.can_apply || !needsLegacyChoice);
+  $("#brokerReplaceWrap").classList.toggle("hidden", !preview?.can_apply || !preview?.replaces_existing_account);
+  $("#brokerStockOnlyWrap").classList.toggle("hidden", !preview?.can_apply);
+  $("#brokerEmptyWrap").classList.toggle("hidden", !preview?.can_apply || !empty);
+  $("#brokerApply").disabled = !preview?.can_apply
+    || (preview.replaces_existing_account && !$("#brokerReplace").checked)
+    || (needsLegacyChoice && !document.querySelector('input[name="legacyChoice"]:checked'))
+    || !$("#brokerStockOnly").checked
+    || (empty && !$("#brokerEmpty").checked);
 }
 
-function renderTigerPreview(preview) {
-  const body = $("#tigerPreviewBody");
+function renderBrokerPreview(preview) {
+  const body = $("#brokerPreviewBody");
+  $("#brokerAccount").dataset.legacyChoiceRequired = preview.replace_legacy_choice_required ? "true" : "false";
   const rows = (preview.positions || []).map((p) => `<tr>
     <td class="ar-ticker">${esc(p.ticker)}</td><td class="ar-num">${qty(p.quantity)}</td>
     <td class="ar-num">${price(p.average_price)}</td></tr>`).join("");
@@ -515,95 +522,109 @@ function renderTigerPreview(preview) {
   const excluded = (preview.excluded || []).map((item) => `<li>${esc(item.market ? `${item.ticker || `Row ${item.row || "?"}`} [${item.market}]` : (item.ticker || `Row ${item.row || "?"}`))}: ${esc(item.reason)}</li>`).join("");
   const issues = (preview.issues || []).map((issue) => `<li>${esc(issue)}</li>`).join("");
   const warnings = (preview.warnings || []).map((warning) => `<li>${esc(warning)}</li>`).join("");
-  body.innerHTML = `<p><strong>${esc(preview.account_label || "Selected account")}</strong> · Snapshot ${esc(preview.fetched_at || "time unavailable")} · ${preview.position_count} rows · ${preview.currency ? `currency ${esc(preview.currency)}` : "currency unavailable"} · cash ${esc(moneyLevel(preview.cash))}</p>
+  const cash = preview.cash_known === false || preview.cash == null ? "Unknown USD cash" : moneyLevel(preview.cash);
+  body.innerHTML = `<p><strong>${esc(preview.account_label || "Selected account")}</strong> · Snapshot ${esc(preview.fetched_at || "time unavailable")} · ${preview.position_count ?? (preview.positions || []).length} rows · ${preview.currency ? `currency ${esc(preview.currency)}` : "currency unavailable"} · cash ${esc(cash)}</p>
     ${rows ? `<div class="ar-table-wrap"><table class="ar-table"><thead><tr><th>Ticker</th><th>Quantity</th><th>Average cost</th></tr></thead><tbody>${rows}</tbody></table></div>` : "<p>No supported positions in snapshot.</p>"}
     ${warnings.length || excluded.length ? `<div class="ar-callout ar-callout--warn"><strong>Stock-only import scope</strong><ul>${warnings}${excluded}</ul></div>` : ""}
     ${issues.length || rejected.length ? `<div class="ar-callout ar-callout--warn"><strong>Cannot apply this snapshot</strong><ul>${issues}${rejected}</ul></div>` : "<p class=\"ar-subtle\">All stock rows are supported.</p>"}`;
-  $("#tigerReplace").checked = false;
-  $("#tigerStockOnly").checked = false;
-  $("#tigerEmpty").checked = false;
-  syncTigerApply();
+  const replace = $("#brokerReplaceWrap");
+  const replaceText = replace.querySelector("span");
+  replaceText.textContent = preview.replaces_existing_legacy
+    ? "I reviewed this snapshot and want to replace the legacy Argus book with this broker account."
+    : `I reviewed this snapshot and want to update ${preview.account_label || "only this account"}.`;
+  $("#legacyChoiceWrap").classList.toggle("hidden", !preview.can_apply || !preview.replace_legacy_choice_required);
+  $("#brokerReplace").checked = false;
+  $("#brokerStockOnly").checked = false;
+  $("#brokerEmpty").checked = false;
+  syncBrokerApply();
 }
 
-async function loadTigerAccounts() {
-  const select = $("#tigerAccount");
+async function loadBrokerAccounts() {
+  const broker = currentBroker();
+  const select = $("#brokerAccount");
   select.innerHTML = '<option value="">Loading authorized accounts…</option>';
   try {
-    const data = await api("/api/tiger/accounts");
+    const data = await api(`/api/${broker}/accounts`);
     select.innerHTML = '<option value="">Select an account…</option>' + (data.accounts || []).map((a) =>
       `<option value="${esc(a.account_key)}">${esc(a.label)} · ${esc(a.account_type)}${a.status ? ` · ${esc(a.status)}` : ""}</option>`).join("");
     if (!data.accounts?.length) select.innerHTML = '<option value="">No authorized accounts</option>';
+    select.dataset.hasLegacy = data.has_legacy_account ? "true" : "false";
+    select.dataset.legacyChoiceRequired = data.replace_legacy_choice_required ? "true" : "false";
+    $("#legacyChoiceWrap").classList.toggle("hidden", !data.replace_legacy_choice_required);
   } catch (e) {
     select.innerHTML = '<option value="">Could not load accounts</option>';
-    $("#tigerPreviewBody").textContent = e.message;
+    $("#brokerPreviewBody").textContent = e.message;
   }
 }
 
-$("#tigerImportOpen").addEventListener("click", async () => {
-  state.tigerPreviewRequestId += 1;
-  state.tigerPreview = null;
-  $("#tigerPreviewBody").textContent = "Load an authorized Tiger account to preview positions.";
-  $("#tigerReplaceWrap").classList.add("hidden");
-  $("#tigerStockOnlyWrap").classList.add("hidden");
-  $("#tigerEmptyWrap").classList.add("hidden");
-  $("#tigerApply").disabled = true;
-  $("#tigerImportModal").showModal();
-  await loadTigerAccounts();
+$("#brokerImportOpen").addEventListener("click", async () => {
+  resetBrokerPreview("Load an authorized broker account to preview positions.");
+  $("#brokerImportModal").showModal();
+  await loadBrokerAccounts();
 });
-$("#tigerCancel").addEventListener("click", () => {
-  state.tigerPreviewRequestId += 1;
-  $("#tigerImportModal").close();
+$("#brokerCancel").addEventListener("click", () => {
+  resetBrokerPreview();
+  $("#brokerImportModal").close();
 });
-$("#tigerAccount").addEventListener("change", () => {
-  state.tigerPreviewRequestId += 1;
-  state.tigerPreview = null;
-  $("#tigerReplace").checked = false;
-  $("#tigerStockOnly").checked = false;
-  $("#tigerEmpty").checked = false;
-  $("#tigerPreviewBody").textContent = "Account changed. Fetch a new preview before applying.";
-  syncTigerApply();
+$("#brokerType").addEventListener("change", () => { resetBrokerPreview(); loadBrokerAccounts(); });
+$("#brokerAccount").addEventListener("change", () => {
+  resetBrokerPreview("Account changed. Fetch a new preview before applying.");
+  $("#legacyChoiceWrap").classList.toggle("hidden", $("#brokerAccount").dataset.hasLegacy !== "true");
 });
-$("#tigerReplace").addEventListener("change", syncTigerApply);
-$("#tigerStockOnly").addEventListener("change", syncTigerApply);
-$("#tigerEmpty").addEventListener("change", syncTigerApply);
-$("#tigerFetch").addEventListener("click", async () => {
-  const account_key = $("#tigerAccount").value;
-  if (!account_key) { showToast("Select an authorized Tiger account first.", "warn"); return; }
+document.querySelectorAll('input[name="legacyChoice"]').forEach((el) => el.addEventListener("change", () => {
+  if (state.tigerPreview) {
+    const chosen = el.value;
+    resetBrokerPreview("Legacy account choice changed. Fetch a new preview before applying.");
+    $("#legacyChoiceWrap").classList.toggle("hidden", $("#brokerAccount").dataset.legacyChoiceRequired !== "true");
+    el.checked = true;
+    el.value = chosen;
+  }
+}));
+["brokerReplace", "brokerStockOnly", "brokerEmpty"].forEach((id) => $("#" + id).addEventListener("change", syncBrokerApply));
+$("#brokerFetch").addEventListener("click", async () => {
+  const account_key = $("#brokerAccount").value;
+  const broker = currentBroker();
+  if (!account_key) { showToast("Select an authorized account first.", "warn"); return; }
   const requestId = ++state.tigerPreviewRequestId;
   state.tigerPreview = null;
-  $("#tigerPreviewBody").textContent = "Fetching read-only positions and cash…";
-  $("#tigerApply").disabled = true;
+  $("#brokerPreviewBody").textContent = "Fetching read-only positions and cash…";
+  $("#brokerApply").disabled = true;
   try {
-    const preview = await api("/api/tiger/preview", { method: "POST", body: JSON.stringify({ account_key }) });
-    if (!globalThis.argusTigerPreviewIsCurrent(requestId, state.tigerPreviewRequestId, account_key,
-      $("#tigerAccount").value, preview.account_key, $("#tigerImportModal").open)) return;
+    const legacyChoice = document.querySelector('input[name="legacyChoice"]:checked');
+    const replace_legacy = legacyChoice ? selectedLegacyReplacement() : null;
+    const preview = await api(`/api/${broker}/preview`, { method: "POST", body: JSON.stringify({ account_key, replace_legacy }) });
+    if (!globalThis.argusBrokerPreviewIsCurrent(requestId, state.tigerPreviewRequestId, account_key,
+      $("#brokerAccount").value, preview.account_key, $("#brokerImportModal").open)) return;
     state.tigerPreview = preview;
-    renderTigerPreview(preview);
+    renderBrokerPreview(preview);
   } catch (e) {
-    if (!globalThis.argusTigerPreviewIsCurrent(requestId, state.tigerPreviewRequestId, account_key,
-      $("#tigerAccount").value, account_key, $("#tigerImportModal").open)) return;
-    $("#tigerPreviewBody").textContent = e.message;
+    if (!globalThis.argusBrokerPreviewIsCurrent(requestId, state.tigerPreviewRequestId, account_key,
+      $("#brokerAccount").value, account_key, $("#brokerImportModal").open)) return;
+    $("#brokerPreviewBody").textContent = e.message;
     showToast(e.message, "danger");
   }
 });
-$("#tigerApply").addEventListener("click", async () => {
+$("#brokerApply").addEventListener("click", async () => {
   const preview = state.tigerPreview;
-  if (!preview || !$("#tigerReplace").checked) return;
-  if (!$("#tigerStockOnly").checked) return;
-  if (preview.positions.length === 0 && !$("#tigerEmpty").checked) return;
-  const button = $("#tigerApply");
+  const broker = currentBroker();
+  if (!preview || !$("#brokerStockOnly").checked) return;
+  if (preview.replaces_existing_account && !$("#brokerReplace").checked) return;
+  if ((preview.positions || []).length === 0 && !$("#brokerEmpty").checked) return;
+  const button = $("#brokerApply");
   button.disabled = true;
   try {
-    const result = await api("/api/tiger/apply", { method: "POST", body: JSON.stringify({
-      preview_id: preview.preview_id, confirm: true, confirm_empty: $("#tigerEmpty").checked,
-      confirm_stock_only: true,
+    const result = await api(`/api/${broker}/apply`, { method: "POST", body: JSON.stringify({
+      account_key: $("#brokerAccount").value, preview_id: preview.preview_id, confirm: true,
+      confirm_empty: $("#brokerEmpty").checked, confirm_stock_only: true,
+      replace_legacy: selectedLegacyReplacement(),
     }) });
-    $("#tigerImportModal").close();
-    showToast(result.backup ? `Portfolio replaced. Backup saved as ${result.backup}.` : "Portfolio created from the reviewed Tiger snapshot.", "ok");
+    $("#brokerImportModal").close();
+    resetBrokerPreview();
+    showToast(result.backup ? `Account snapshot applied. Backup saved as ${result.backup}.` : "Broker account snapshot applied.", "ok");
     await loadPortfolio();
   } catch (e) {
     showToast(e.message, "danger");
-    syncTigerApply();
+    syncBrokerApply();
   }
 });
 
@@ -615,13 +636,6 @@ async function loadWatchlist() {
   ]);
   state.watchlist = data.items || [];
   state.watchlistProposal = proposal;
-  const sub = $("#wlSubTable tbody");
-  if (sub) {
-    sub.innerHTML = (data.subthemes || []).map((b) => {
-      const names = (b.tickers || []).map((t) => t.ticker).join(", ") || "—";
-      return `<tr><td>${esc(b.label || b.id)}</td><td class="ar-mono">${esc(names)}</td><td class="ar-num">${b.count || 0}</td></tr>`;
-    }).join("");
-  }
   const tb = $("#wlTable tbody");
   tb.innerHTML = state.watchlist.map((it) => `
     <tr>
@@ -630,9 +644,8 @@ async function loadWatchlist() {
       <td>${esc(it.sector || "")}</td>
       <td>${esc(it.instrument_type || "Unknown")}</td>
       <td>${esc(it.sleeve === "core_etf" ? "ETF" : it.sleeve === "swing" ? "Stock / cash" : "Unclassified")}</td>
-      <td class="ar-subtle">${esc(it.sub_theme || "")}</td>
       <td class="ar-actions">${(it.origins || ["candidate"]).includes("candidate") ? `<button type="button" class="ar-btn ar-btn--sm ar-btn--danger" data-rm="${esc(it.ticker)}" aria-label="Remove ${esc(it.ticker)} candidate" data-tooltip="Remove saved candidate ${esc(it.ticker)}">${iconSvg("trash-2")}<span class="ar-btn__label">Remove</span></button>` : ""}</td>
-    </tr>`).join("") || `<tr><td colspan="7" class="ar-subtle">No holdings or candidates to monitor</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="6" class="ar-subtle">No holdings or candidates to monitor</td></tr>`;
   renderWatchlistProposal();
 }
 
@@ -743,7 +756,6 @@ $("#wlAdd").addEventListener("click", async () => {
         ticker: $("#wlTicker").value,
         sector: $("#wlSector").value || "Other",
         type: $("#wlType").value,
-        sub_theme: $("#wlSub").value,
       }),
     });
     $("#wlTicker").value = "";
@@ -837,28 +849,24 @@ async function loadFund(path) {
       </div>`).join("") || `<div class="ar-muted">No history</div>`;
   }
   $("#fmSub").textContent = data.path ? `Plan ${data.path}` : "No fund manager output yet";
-  const trades = data.trades || [];
-  $("#fmTrades tbody").innerHTML = trades.map((t) => `
-    <tr>
-      <td class="ar-ticker">${esc(t.ticker)}</td>
-      <td class="${actionClass(t.action)}">${esc(t.action)}</td>
-      <td class="ar-num">${t.shares == null || t.shares === "" ? "—" : qty(t.shares)}</td>
-      <td class="ar-num">${price(t.calc_price ?? t.est_price)}</td>
-      <td>${ratingMarkup(t.agent_rating)}</td>
-      <td class="ar-subtle">${esc(t.follows_agent || "")}</td>
-      <td class="ar-wrap ar-subtle">${esc((t.rationale || "").slice(0, 160))}${(t.rationale || "").length > 160 ? "…" : ""}</td>
-    </tr>`).join("") || `<tr><td colspan="7" class="ar-subtle">No trades in this run</td></tr>`;
+  const trades = data.validated_trades || data.trades || [];
+  $("#fmTrades tbody").innerHTML = globalThis.argusRenderFundTrades(trades, {
+    esc, qty, price, moneyLevel, ratingMarkup, actionClass,
+  });
 
   const d = data.decision || {};
   const summary = d.decision_summary || d.diagnosis || "";
   const warns = (data.warnings || []).map((w) => `<li>${esc(w)}</li>`).join("");
   const cash = d.cash_decision || data.cash_decision || {};
+  const policySummary = globalThis.argusRenderTradePolicy(data.trade_policy, { moneyLevel });
   $("#fmSummary").innerHTML = `
     <p><strong>${esc(d.headline || "—")}</strong></p>
     <p>${summary ? esc(summary) : "<span class='ar-muted'>No summary field</span>"}</p>
     <p class="ar-subtle">Confidence: ${esc(d.confidence ?? "—")}
       ${cash.target_cash_pct != null ? ` · target cash ${esc(cash.target_cash_pct)}%` : ""}
-      ${data.ending_cash != null ? ` · post-trade cash ${moneyLevel(data.ending_cash)} (${esc(data.ending_cash_pct)}%)` : ""}</p>
+      ${data.ending_cash != null ? ` · post-trade cash ${moneyLevel(data.ending_cash)} (${esc(data.ending_cash_pct)}%)` : ""}
+      ${data.fees_usd != null ? ` · estimated fees ${moneyLevel(data.fees_usd)}` : ""}
+      ${policySummary ? ` · ${esc(policySummary)}` : ""}</p>
     ${warns ? `<ul>${warns}</ul>` : ""}`;
   renderMarkdown($("#fmMd"), data.markdown || "");
 }
@@ -1421,15 +1429,6 @@ const AGENT_ROLES = {
   fm_neutral: "Fund debate: the middle view",
 };
 const AGENT_EFFORTS = [["", "Default"], ["low", "Low"], ["medium", "Med"], ["high", "High"]];
-
-function moneyLevel(n) {
-  if (n == null || n === "") return null;
-  const v = Number(n);
-  if (!Number.isFinite(v)) return null;
-  const digits = Math.abs(v) >= 0.01 ? 2 : 4;
-  const body = v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-  return "$" + body;
-}
 
 function lineDiff(before, after) {
   const a = String(before ?? "").split("\n");

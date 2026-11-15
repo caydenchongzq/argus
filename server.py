@@ -43,20 +43,11 @@ DATA = TA_ROOT / "data"
 BOOK = DATA / "my_book.json"
 TARGETS = DATA / "targets.json"
 WATCHLIST = DATA / "watchlist.json"
-THEMES = TA_ROOT / "addons" / "fund_manager" / "themes.json"
 ADDONS = TA_ROOT / "addons"
 if str(ADDONS) not in sys.path:
     sys.path.insert(0, str(ADDONS))
 import agent_config  # noqa: E402
 from run_inputs import fingerprint as _fingerprint_run_inputs  # noqa: E402
-SUBTHEME_ORDER = (
-    "ai_energy",
-    "ai_memory_storage",
-    "ai_compute_semis",
-    "ai_network_fibre",
-    "ai_cloud_software",
-    "physical_ai",
-)
 REPORTS_DIR = DATA / "logs" / "reports"
 FUND_DIR = DATA / "fund_manager"
 RUNNER = ROOT / "run_analysis.py"
@@ -292,7 +283,10 @@ def _decision_bundle(js: Optional[dict]) -> dict:
         check = js.get("draft_check") or {}
     else:
         check = js.get("final_check") or js.get("draft_check") or {}
-    trades = (check or {}).get("trades") or (decision or {}).get("trades") or []
+    if isinstance(check, dict) and "trades" in check:
+        trades = check.get("trades") or []
+    else:
+        trades = (decision or {}).get("trades") or []
     return {
         "decision": decision,
         "trades": trades,
@@ -301,6 +295,11 @@ def _decision_bundle(js: Optional[dict]) -> dict:
         "ending_cash": (check or {}).get("ending_cash"),
         "ending_cash_pct": (check or {}).get("ending_cash_pct"),
         "post_trade_risk": (check or {}).get("post_trade_risk"),
+        "fees_usd": (check or {}).get("fees_usd"),
+        "accounts_after": (check or {}).get("accounts_after"),
+        "trade_policy": (check or {}).get("trade_policy"),
+        "execution_assumption": (check or {}).get("execution_assumption"),
+        "validated": (check or {}).get("validated") if isinstance(check, dict) and "validated" in check else None,
     }
 
 
@@ -487,7 +486,6 @@ class WatchlistAdd(BaseModel):
     ticker: str
     sector: str = "Other"
     type: str = Field(default="stock", pattern="^(stock|etf)$")
-    sub_theme: str = ""
 
 
 class ScoutRequest(BaseModel):
@@ -524,8 +522,6 @@ class AgentConfigIn(BaseModel):
 class DashboardSettingsIn(BaseModel):
     weekly_budget_enabled: bool = False
     weekly_budget_usd: float = Field(ge=0, le=1_000_000)
-    max_adds_per_week: int | None = Field(default=None, ge=1, le=10_000)
-    max_drops_per_week: int | None = Field(default=None, ge=1, le=10_000)
     max_candidates: int | None = Field(default=None, ge=1, le=10_000)
     max_stocks_per_sector: int | None = Field(default=None, ge=1, le=1000)
 
@@ -546,6 +542,7 @@ class RunRequest(BaseModel):
 
 class TigerPreviewRequest(BaseModel):
     account_key: str
+    replace_legacy: bool | None = None
 
 
 class TigerApplyRequest(BaseModel):
@@ -553,10 +550,65 @@ class TigerApplyRequest(BaseModel):
     confirm: bool = False
     confirm_empty: bool = False
     confirm_stock_only: bool = False
+    replace_legacy: bool | None = None
 
 
 _TIGER_ACCOUNTS: dict[str, dict[str, str]] = {}
 _TIGER_ACCOUNTS_LOCK = threading.Lock()
+_MOOMOO_ACCOUNTS: dict[str, dict[str, str]] = {}
+_MOOMOO_ACCOUNTS_LOCK = threading.Lock()
+
+
+def _book_document() -> dict:
+    if not BOOK.exists():
+        return {}
+    value = _read_json(BOOK)
+    return value if isinstance(value, dict) else {}
+
+
+def _has_legacy_account() -> bool:
+    if not BOOK.exists():
+        return False
+    book = _book_document()
+    if book.get("schema_version") != 2:
+        return True
+    accounts = book.get("accounts")
+    return isinstance(accounts, list) and any(
+        isinstance(account, dict) and account.get("account_id") == "legacy"
+        for account in accounts)
+
+
+def _bound_legacy_choice(record: dict, requested: bool | None) -> bool:
+    """Return the previewed choice and reject any apply-time change."""
+    previewed = record.get("replace_legacy")
+    if previewed is None and requested is False and not _has_legacy_account():
+        return False
+    if requested is not None and requested != previewed:
+        raise HTTPException(409, "Legacy replacement choice changed after preview; review a fresh preview")
+    if _has_legacy_account() and previewed is None:
+        raise HTTPException(400, "Choose replace legacy or add a separate account in a fresh preview")
+    return bool(previewed)
+
+
+def _existing_account_label(account_id: str | None) -> str | None:
+    if not account_id:
+        return None
+    book = _book_document()
+    accounts = book.get("accounts") if book.get("schema_version") == 2 else []
+    if isinstance(accounts, list):
+        for account in accounts:
+            if isinstance(account, dict) and account.get("account_id") == account_id:
+                return str(account.get("label") or account.get("broker") or "Existing account")
+    return None
+
+
+def _close_broker_context(client) -> None:
+    close = getattr(client, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -602,8 +654,6 @@ def _dashboard_settings(targets: dict | None = None) -> dict:
     return {
         "weekly_budget_enabled": budget["enabled"],
         "weekly_budget_usd": budget["weekly_usd"],
-        "max_adds_per_week": None,
-        "max_drops_per_week": None,
         "cooldown_days": 14,
         "max_candidates": raw_watch.get("max_candidates", DEFAULT_MAX_CANDIDATES),
         "max_stocks_per_sector": raw_watch.get("max_stocks_per_sector", DEFAULT_MAX_STOCKS_PER_SECTOR),
@@ -629,8 +679,6 @@ def settings_save(body: DashboardSettingsIn, request: Request):
         budget.update({"enabled": body.weekly_budget_enabled,
                        "weekly_usd": body.weekly_budget_usd})
         curator.update({
-            "max_adds_per_week": body.max_adds_per_week,
-            "max_drops_per_week": body.max_drops_per_week,
             "max_candidates": body.max_candidates,
             "max_stocks_per_sector": body.max_stocks_per_sector,
         })
@@ -659,73 +707,6 @@ def agents_save(body: AgentConfigIn, request: Request):
             return agent_config.validate_and_save(payload)
     except agent_config.AgentConfigError as exc:
         raise HTTPException(400, str(exc)) from exc
-
-
-def _theme_file() -> dict:
-    if not THEMES.exists():
-        return {}
-    data = _read_json(THEMES)
-    return data if isinstance(data, dict) else {}
-
-
-def _subtheme_index() -> dict[str, str]:
-    index: dict[str, str] = {}
-    for name, members in (_theme_file().get("subthemes") or {}).items():
-        for ticker in members or []:
-            index[str(ticker).upper()] = str(name)
-    return index
-
-
-def _subtheme_labels() -> dict[str, str]:
-    labels = {
-        "ai_energy": "AI energy",
-        "ai_memory_storage": "AI memory & storage",
-        "ai_compute_semis": "AI compute & semis",
-        "ai_network_fibre": "AI network & fibre",
-        "ai_cloud_software": "AI cloud & software",
-        "physical_ai": "Physical AI",
-    }
-    labels.update(_theme_file().get("subtheme_labels") or {})
-    return labels
-
-
-def _subtheme_table(rows: list[dict], weight_key: str = "weight_pct") -> list[dict]:
-    """Direct exposure for holdings, or a name list for the watchlist."""
-    labels = _subtheme_labels()
-    index = _subtheme_index()
-    defined = list((_theme_file().get("subthemes") or {}).keys()) or list(SUBTHEME_ORDER)
-    buckets = {
-        name: {"id": name, "label": labels.get(name, name), "weight_pct": 0.0,
-               "market_value": 0.0, "count": 0, "tickers": []}
-        for name in defined
-    }
-    for row in rows:
-        ticker = str(row.get("ticker") or "").upper()
-        name = row.get("sub_theme") or index.get(ticker)
-        if not name:
-            continue
-        bucket = buckets.setdefault(name, {
-            "id": name, "label": labels.get(name, name), "weight_pct": 0.0,
-            "market_value": 0.0, "count": 0, "tickers": []})
-        weight = row.get(weight_key)
-        value = row.get("market_value")
-        if isinstance(weight, (int, float)):
-            bucket["weight_pct"] += float(weight)
-        if isinstance(value, (int, float)):
-            bucket["market_value"] += float(value)
-        bucket["count"] += 1
-        bucket["tickers"].append({
-            "ticker": ticker,
-            "weight_pct": round(float(weight), 1) if isinstance(weight, (int, float)) else None,
-        })
-    order = defined + [name for name in buckets if name not in defined]
-    out = []
-    for name in order:
-        bucket = buckets[name]
-        bucket["weight_pct"] = round(bucket["weight_pct"], 1)
-        bucket["market_value"] = round(bucket["market_value"], 2)
-        out.append(bucket)
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -770,11 +751,56 @@ def _sleeve(ticker: str, info: dict | None) -> str:
     return "unclassified"
 
 
+def _portfolio_account_rows(accounts: list[dict], price_map: dict[str, dict]) -> list[dict]:
+    rows = []
+    for account in accounts:
+        priced_value = 0.0
+        all_priced = True
+        for position in account.get("positions") or []:
+            if str(position.get("currency") or account.get("currency") or "").upper() != "USD":
+                all_priced = False
+                continue
+            price = (price_map.get(position.get("ticker")) or {}).get("price")
+            try:
+                numeric_price = float(price)
+                quantity = float(position.get("quantity"))
+                if not math.isfinite(numeric_price) or numeric_price <= 0 or not math.isfinite(quantity):
+                    raise ValueError()
+            except (TypeError, ValueError):
+                all_priced = False
+                continue
+            priced_value += quantity * numeric_price
+        cash_known = account.get("cash") is not None
+        cash = float(account["cash"]) if cash_known else None
+        total = priced_value + cash if all_priced and cash_known else None
+        rows.append({
+            "account_id": account.get("account_id"),
+            "broker": account.get("broker"),
+            "label": account.get("label"),
+            "scope": account.get("scope"),
+            "currency": account.get("currency"),
+            "holdings_value": round(priced_value, 2),
+            "holdings_value_complete": all_priced,
+            "cash": cash,
+            "cash_known": cash_known,
+            "available_cash": account.get("available_cash"),
+            "total_market_value": round(total, 2) if total is not None else None,
+            "fetched_at": account.get("fetched_at"),
+            "position_count": len(account.get("positions") or []),
+        })
+    return rows
+
+
 @app.get("/api/portfolio")
 def portfolio():
     # A missing book is a valid first-import state. Keep GET read-only; the
     # Tiger replacement path creates it only after preview and confirmation.
-    book = _read_json(BOOK) if BOOK.exists() else {"cash": 0, "currency": "", "positions": []}
+    book = _read_json(BOOK) if BOOK.exists() else {"cash": 0, "currency": "USD", "positions": []}
+    try:
+        from portfolio_book import normalize_book
+        book = normalize_book(book)
+    except (ImportError, ValueError) as exc:
+        raise HTTPException(500, f"Portfolio book is invalid: {exc}") from exc
     targets = _read_json(TARGETS) if TARGETS.exists() else {}
     approved_targets = _approved_target_weights(targets)
     stats = _latest_stats()
@@ -785,27 +811,43 @@ def portfolio():
 
     rows = []
     invested_cost = 0.0
+    cost_complete = True
+    positions_complete = True
     invested_mv = 0.0
     for pos in book.get("positions") or []:
         t = pos["ticker"]
         qty = float(pos.get("quantity") or 0)
-        avg = float(pos.get("average_price") or 0)
-        cost = qty * avg
-        invested_cost += cost
+        avg_raw = pos.get("average_price")
+        avg = float(avg_raw) if avg_raw is not None else None
+        cost = qty * avg if avg is not None else None
+        if cost is None:
+            cost_complete = False
+        else:
+            invested_cost += cost
         st = price_map.get(t) or {}
         price = st.get("price")
         # Value is today's quantity times the latest stats price. The stored
         # market_value and weight belong to whatever quantity the book had then.
-        if price is not None:
-            mv = qty * float(price)
+        try:
+            numeric_price = float(price)
+            valid_price = math.isfinite(numeric_price) and numeric_price > 0
+        except (TypeError, ValueError):
+            numeric_price = None
+            valid_price = False
+        if valid_price and str(pos.get("currency") or "USD").upper() == "USD":
+            price = numeric_price
+            mv = qty * numeric_price
             invested_mv += mv
-            pnl = mv - cost
-            pnl_pct = ((float(price) / avg - 1) * 100) if avg else None
+            pnl = mv - cost if cost is not None else None
+            pnl_pct = ((numeric_price / avg - 1) * 100) if avg else None
         else:
+            positions_complete = False
+            price = None
             mv = pnl = pnl_pct = None
         rows.append({
             "ticker": t,
             "quantity": qty,
+            "currency": pos.get("currency", "USD"),
             "average_price": avg,
             "cost_basis": cost,
             "price": price,
@@ -816,15 +858,21 @@ def portfolio():
             "sector": st.get("sector"),
             "name": st.get("name"),
             "target_pct": approved_targets.get(t),
-            "sub_theme": _subtheme_index().get(str(t).upper()),
             "instrument_type": _instrument_type(t, st),
             "sleeve": _sleeve(t, st),
+            "accounts": pos.get("account_positions") or [],
         })
 
-    cash = float(book.get("cash") or 0)
-    total_cost = invested_cost + cash
+    cash = (float(book["cash"])
+            if book.get("cash") is not None and book.get("currency") == "USD" else None)
+    known_cash_values = [float(a["cash"]) for a in book.get("accounts") or []
+                         if a.get("cash") is not None and str(a.get("currency") or "").upper() == "USD"]
+    known_cash_subtotal = sum(known_cash_values)
+    known_cash_complete = (len(known_cash_values) == len(book.get("accounts") or [])
+                           and book.get("currency") == "USD")
+    total_cost = invested_cost + cash if cost_complete and cash is not None and book.get("currency") == "USD" else None
     priced = [r for r in rows if r["market_value"] is not None]
-    total_mv = (invested_mv + cash) if priced else None
+    total_mv = (invested_mv + cash) if positions_complete and cash is not None and book.get("currency") == "USD" else None
     cash_pct = (100.0 * cash / total_mv) if total_mv else None
     if total_mv:
         for r in rows:
@@ -858,11 +906,28 @@ def portfolio():
             bucket["weight_pct"] = round(bucket["weight_pct"], 1)
             bucket["market_value"] = round(bucket["market_value"], 2)
             bucket["unrealized_pnl"] = round(bucket["unrealized_pnl"], 2)
-    unrealized = sum(r["unrealized_pnl"] or 0 for r in rows) if priced else None
+    else:
+        for bucket in sleeves.values():
+            bucket["weight_pct"] = None
+            bucket["market_value"] = None
+            bucket["unrealized_pnl"] = None
+    unrealized = (sum(r["unrealized_pnl"] or 0 for r in rows)
+                  if positions_complete and cost_complete else None)
     account_out = {
         "total_value": round(total_mv, 2) if total_mv is not None else None,
-        "invested": round(invested_mv, 2) if priced else None,
+        "invested": round(invested_mv, 2) if positions_complete else None,
+        "priced_holdings_subtotal": round(invested_mv, 2),
+        "holdings_value": round(invested_mv, 2),
+        "holdings_value_complete": positions_complete,
+        "known_cash_subtotal": round(known_cash_subtotal, 2),
+        "known_cash_complete": known_cash_complete,
+        "partial": not positions_complete or cash is None or book.get("currency") != "USD",
+        "partial_note": "Priced US holdings and known USD cash subtotals may be partial; total equity is unavailable until every included account has verified USD cash and prices.",
         "cash": cash,
+        "known_cash_subtotal": round(known_cash_subtotal, 2),
+        "known_cash_complete": known_cash_complete,
+        "holdings_value": round(invested_mv, 2),
+        "holdings_value_complete": positions_complete,
         "cash_pct": round(cash_pct, 1) if cash_pct is not None else None,
         "unrealized_pnl": round(unrealized, 2) if unrealized is not None else None,
     }
@@ -870,21 +935,27 @@ def portfolio():
     return {
         "currency": book.get("currency", "USD"),
         "cash": cash,
+        "known_cash_subtotal": round(known_cash_subtotal, 2),
+        "known_cash_complete": known_cash_complete,
+        "holdings_value": round(invested_mv, 2),
+        "holdings_value_complete": positions_complete,
+        "partial": account_out["partial"],
+        "partial_note": account_out["partial_note"],
         "cash_pct": round(cash_pct, 1) if cash_pct is not None else None,
         "cash_target_pct": approved_targets.get("cash"),
         "positions": rows,
         "weights": weights_current,
         "targets": approved_targets,
         "account": account_out,
-        "total_cost": total_cost,
+        "total_cost": round(total_cost, 2) if total_cost is not None else None,
         "total_market_value": account_out["total_value"],
         "stats_date": stats.get("date") if stats else None,
         "stats_run": stats.get("run") if stats else None,
         "prices_as_of": (stats.get("as_of_prices") if stats else None),
         "book_newer_than_stats": book_newer,
-        "ai_subthemes": _subtheme_table(rows),
         "ai_sleeve_cap_pct": float((targets.get("ai_sleeve") or {}).get("cap_pct") or 50),
         "sleeves": sleeves,
+        "accounts": _portfolio_account_rows(book.get("accounts") or [], price_map),
         "core_etf_warn_pct": _CORE_ETF_WARN_PCT,
         "core_etf_breach_pct": _CORE_ETF_BREACH_PCT,
     }
@@ -907,7 +978,7 @@ def _saved_watchlist_items() -> list[dict]:
             continue
         ticker = str(row.get("ticker") or "").upper()
         if ticker:
-            cleaned.append({**row, "ticker": ticker})
+            cleaned.append({**{key: value for key, value in row.items() if key != "sub_theme"}, "ticker": ticker})
     return cleaned
 
 
@@ -921,7 +992,7 @@ def _canonical_watchlist(items: list[dict]) -> list[dict]:
             continue
         seen.add(ticker)
         row = {"ticker": ticker, "sector": item.get("sector"), "type": item.get("type") or "stock"}
-        for key in ("theme", "sub_theme", "note"):
+        for key in ("theme", "note"):
             if item.get(key):
                 row[key] = item[key]
         rows.append(row)
@@ -1072,17 +1143,15 @@ def _staged_tickers() -> set[str]:
 
 @app.get("/api/watchlist")
 def get_watchlist():
-    index = _subtheme_index()
     stats = _latest_stats() or {}
     market = {str(p.get("ticker") or "").upper(): p for p in stats.get("positions") or []}
     candidates = {}
     for item in _saved_watchlist_items():
-        row = dict(item)
+        row = {key: value for key, value in item.items() if key != "sub_theme"}
         ticker = str(row.get("ticker") or "").upper()
         if not ticker:
             continue
         row["ticker"] = ticker
-        row["sub_theme"] = row.get("sub_theme") or index.get(ticker)
         row["origin"] = "candidate"
         row["origins"] = ["candidate"]
         row["held"] = False
@@ -1102,7 +1171,6 @@ def get_watchlist():
         info = market.get(ticker) or {}
         row = dict(candidates.get(ticker) or {
             "ticker": ticker, "sector": info.get("sector"), "type": None,
-            "sub_theme": index.get(ticker),
         })
         row.update({
             "held": True,
@@ -1117,7 +1185,7 @@ def get_watchlist():
         held_rows.append(row)
     held_tickers = {row["ticker"] for row in held_rows}
     cleaned = held_rows + [row for ticker, row in candidates.items() if ticker not in held_tickers]
-    return {"items": cleaned, "subthemes": _subtheme_table(cleaned)}
+    return {"items": cleaned}
 
 
 def _watch_log(action: str, ticker: str, row: dict, reason: str = "") -> None:
@@ -1143,10 +1211,6 @@ def add_watchlist(item: WatchlistAdd, request: Request):
                 raise HTTPException(409, f"{ticker} already on watchlist")
         entry = {"ticker": ticker, "sector": item.sector.strip() or "Other", "type": item.type}
         _validate_watchlist_add(entry, current)
-        if item.sub_theme:
-            if item.sub_theme not in _subtheme_labels() and item.sub_theme not in SUBTHEME_ORDER:
-                raise HTTPException(400, f"Unknown sub_theme {item.sub_theme}")
-            entry["sub_theme"] = item.sub_theme
         current.append(entry)
         _write_watchlist_items(current)
         _watch_log("add", ticker, entry, "added in Argus")
@@ -1213,12 +1277,17 @@ def spend():
 def tiger_accounts():
     """List authorized account aliases; never return account identifiers to the browser."""
     from tiger_import import TigerImportError, oauth_trade_client, read_accounts
+    client = None
     try:
-        records = read_accounts(oauth_trade_client())
+        client = oauth_trade_client()
+        records = read_accounts(client)
     except TigerImportError as exc:
         raise HTTPException(503, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(502, "Tiger account lookup failed; check OAuth authorization and retry") from exc
+    finally:
+        if client is not None:
+            _close_broker_context(client)
     out = []
     aliases: dict[str, dict[str, str]] = {}
     for index, record in enumerate(records, 1):
@@ -1236,8 +1305,9 @@ def tiger_accounts():
 @app.post("/api/tiger/preview")
 def tiger_preview(body: TigerPreviewRequest, request: Request):
     _require_confirm_token(request)
-    from tiger_import import (TigerImportError, book_version, normalize_snapshot,
-                              oauth_trade_client, read_snapshot)
+    from portfolio_import import account_identity, book_version
+    from tiger_import import (TigerImportError, normalize_snapshot, oauth_trade_client,
+                              read_snapshot)
     with _TIGER_ACCOUNTS_LOCK:
         account = _TIGER_ACCOUNTS.get(body.account_key)
     if account is None:
@@ -1245,17 +1315,25 @@ def tiger_preview(body: TigerPreviewRequest, request: Request):
     try:
         client = oauth_trade_client()
         snapshot = read_snapshot(client, account["id"], account["type"])
-        normalized = normalize_snapshot(snapshot)
+        normalized = normalize_snapshot(
+            snapshot,
+            account_id=account_identity("tiger", account["id"]),
+            account_label=account["label"],
+        )
     except TigerImportError as exc:
         raise HTTPException(502, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(502, "Tiger positions or assets query failed; no portfolio changes were made") from exc
+    finally:
+        if "client" in locals():
+            _close_broker_context(client)
     preview_id = secrets.token_urlsafe(24)
     record = {
         "id": preview_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "book_version": book_version(BOOK),
         "snapshot": normalized,
+        "replace_legacy": body.replace_legacy,
     }
     preview_dir = RUNS_DIR / "tiger-previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
@@ -1264,10 +1342,17 @@ def tiger_preview(body: TigerPreviewRequest, request: Request):
             "account_key": body.account_key, "account_label": account["label"],
             "scope": normalized["scope"],
             "fetched_at": normalized["fetched_at"], "currency": normalized["currency"],
-            "position_count": normalized["position_count"], "positions": normalized["book"]["positions"],
+            "position_count": normalized["position_count"],
+            "positions": normalized.get("account", {}).get("positions", normalized["book"]["positions"]),
             "cash": normalized["book"]["cash"], "rejected": normalized["rejected"],
             "excluded": normalized["excluded"], "warnings": normalized["warnings"],
             "issues": normalized["issues"], "can_apply": normalized["can_apply"],
+            "account_id": normalized.get("account", {}).get("account_id"),
+            "existing_account": _existing_account_label(normalized.get("account", {}).get("account_id")),
+            "has_legacy_account": _has_legacy_account(),
+            "replaces_existing_account": _existing_account_label(normalized.get("account", {}).get("account_id")) is not None,
+            "replaces_existing_legacy": bool(body.replace_legacy),
+            "replace_legacy_choice_required": _has_legacy_account() and body.replace_legacy is None,
             "replaces_existing_positions": True,
             "empty_positions_require_confirmation": not normalized["book"]["positions"]}
 
@@ -1279,7 +1364,7 @@ def tiger_apply(body: TigerApplyRequest, request: Request):
         raise HTTPException(400, "Set confirm=true after reviewing the replacement preview")
     if not re.fullmatch(r"[A-Za-z0-9_-]{20,80}", body.preview_id):
         raise HTTPException(400, "Invalid preview id")
-    from tiger_import import TigerImportError, apply_replacement
+    from portfolio_import import PortfolioImportError, apply_account
     preview_path = RUNS_DIR / "tiger-previews" / f"{body.preview_id}.json"
     if not preview_path.is_file():
         raise HTTPException(404, "Preview not found; fetch a fresh Tiger snapshot")
@@ -1298,13 +1383,140 @@ def tiger_apply(body: TigerApplyRequest, request: Request):
                                   "rejected": snapshot.get("rejected")})
     if not snapshot["book"]["positions"] and not body.confirm_empty:
         raise HTTPException(400, "Confirm explicitly to replace the portfolio with zero positions")
+    account = snapshot.get("account")
+    if not isinstance(account, dict):
+        raise HTTPException(400, "Preview lacks the account snapshot; fetch a fresh preview")
+    replace_legacy = _bound_legacy_choice(record, body.replace_legacy)
     try:
         with _data_write_lock():
-            backup = apply_replacement(BOOK, snapshot["book"], record["book_version"])
-    except TigerImportError as exc:
+            backup = apply_account(BOOK, account, record["book_version"], replace_legacy=bool(replace_legacy))
+    except PortfolioImportError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return {"ok": True, "backup": backup.name if backup else None, "positions": len(snapshot["book"]["positions"]),
-            "currency": snapshot["book"]["currency"]}
+    return {"ok": True, "backup": backup.name if backup else None, "positions": len(account["positions"]),
+            "currency": account["currency"], "account_id": account["account_id"]}
+
+
+@app.get("/api/moomoo/accounts")
+def moomoo_accounts():
+    """List authorized real Moomoo Singapore account aliases only."""
+    from moomoo_import import MoomooImportError, oauth_trade_client, read_accounts
+    client = None
+    try:
+        client = oauth_trade_client()
+        records = read_accounts(client)
+    except MoomooImportError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, "Moomoo account lookup failed; check OpenD and account authorization") from exc
+    finally:
+        if client is not None:
+            _close_broker_context(client)
+    aliases: dict[str, dict[str, str]] = {}
+    out = []
+    for index, record in enumerate(records, 1):
+        key = secrets.token_urlsafe(18)
+        label = f"Moomoo account {index}"
+        aliases[key] = {**record, "label": label}
+        out.append({"account_key": key, "label": label, "account_type": record["type"], "status": record["status"]})
+    with _MOOMOO_ACCOUNTS_LOCK:
+        _MOOMOO_ACCOUNTS.clear()
+        _MOOMOO_ACCOUNTS.update(aliases)
+    return {"accounts": out}
+
+
+@app.post("/api/moomoo/preview")
+def moomoo_preview(body: TigerPreviewRequest, request: Request):
+    _require_confirm_token(request)
+    from moomoo_import import MoomooImportError, normalize_snapshot, oauth_trade_client, read_snapshot
+    from portfolio_import import account_identity, book_version
+    with _MOOMOO_ACCOUNTS_LOCK:
+        account = _MOOMOO_ACCOUNTS.get(body.account_key)
+    if account is None:
+        raise HTTPException(400, "Refresh the Moomoo account list and select an account")
+    client = None
+    try:
+        client = oauth_trade_client()
+        raw = read_snapshot(client, account["id"], account["type"])
+        normalized = normalize_snapshot(raw)
+    except MoomooImportError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, "Moomoo positions refresh failed; no portfolio changes were made") from exc
+    finally:
+        if client is not None:
+            _close_broker_context(client)
+    account_snapshot = {
+        "account_id": account_identity("moomoo", account["id"]),
+        "broker": "moomoo_sg", "label": account["label"], "scope": "US_STOCKS",
+        "currency": "USD", "cash": None, "available_cash": None,
+        "fetched_at": normalized["fetched_at"], "positions": normalized["positions"],
+    }
+    normalized["account"] = account_snapshot
+    preview_id = secrets.token_urlsafe(24)
+    record = {"id": preview_id, "created_at": datetime.now(timezone.utc).isoformat(),
+              "book_version": book_version(BOOK), "snapshot": normalized,
+              "replace_legacy": body.replace_legacy}
+    preview_dir = RUNS_DIR / "broker-previews"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    (preview_dir / f"{preview_id}.json").write_text(json.dumps(record, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    existing = _existing_account_label(account_snapshot["account_id"])
+    return {"preview_id": preview_id, "created_at": record["created_at"],
+            "account_key": body.account_key, "account_label": account["label"],
+            "scope": normalized["scope"], "fetched_at": normalized["fetched_at"],
+            "currency": "USD", "position_count": normalized["position_count"],
+            "positions": normalized["positions"], "cash": None,
+            "rejected": normalized["rejected"], "excluded": normalized["excluded"],
+            "warnings": normalized["warnings"], "issues": normalized["issues"],
+            "can_apply": normalized["can_apply"], "account_id": account_snapshot["account_id"],
+            "existing_account": existing, "has_legacy_account": _has_legacy_account(),
+            "replaces_existing_account": existing is not None,
+            "replaces_existing_legacy": bool(body.replace_legacy),
+            "replace_legacy_choice_required": _has_legacy_account() and body.replace_legacy is None,
+            "replaces_existing_positions": True,
+            "empty_positions_require_confirmation": not normalized["positions"]}
+
+
+@app.post("/api/moomoo/apply")
+def moomoo_apply(body: TigerApplyRequest, request: Request):
+    _require_confirm_token(request)
+    if not body.confirm:
+        raise HTTPException(400, "Set confirm=true after reviewing the replacement preview")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{20,80}", body.preview_id):
+        raise HTTPException(400, "Invalid preview id")
+    from portfolio_import import PortfolioImportError, apply_account
+    preview_path = RUNS_DIR / "broker-previews" / f"{body.preview_id}.json"
+    if not preview_path.is_file():
+        raise HTTPException(404, "Preview not found; fetch a fresh Moomoo snapshot")
+    try:
+        record = json.loads(preview_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(400, "Preview is unreadable; fetch a fresh Moomoo snapshot") from exc
+    try:
+        created = datetime.fromisoformat(record["created_at"])
+        if (datetime.now(timezone.utc) - created).total_seconds() > 1800:
+            raise HTTPException(409, "Preview expired; fetch a fresh Moomoo snapshot")
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(400, "Preview timestamp is invalid; fetch a fresh Moomoo snapshot") from exc
+    snapshot = record.get("snapshot") or {}
+    if not body.confirm_stock_only:
+        raise HTTPException(400, "Confirm explicitly that this replacement imports US stocks only")
+    if not snapshot.get("can_apply"):
+        raise HTTPException(400, {"message": "Snapshot contains unsupported or incomplete data",
+                                  "issues": snapshot.get("issues"), "rejected": snapshot.get("rejected")})
+    account = snapshot.get("account")
+    if not isinstance(account, dict):
+        raise HTTPException(400, "Preview lacks the account snapshot; fetch a fresh preview")
+    if not account["positions"] and not body.confirm_empty:
+        raise HTTPException(400, "Confirm explicitly to replace the account with zero positions")
+    replace_legacy = _bound_legacy_choice(record, body.replace_legacy)
+    try:
+        with _data_write_lock():
+            backup = apply_account(BOOK, account, record["book_version"], replace_legacy=bool(replace_legacy))
+    except PortfolioImportError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "backup": backup.name if backup else None,
+            "positions": len(account["positions"]), "currency": account["currency"],
+            "account_id": account["account_id"]}
 
 
 # ---------------------------------------------------------------------------
@@ -1344,7 +1556,7 @@ def report_detail(report_id: str):
 # ---------------------------------------------------------------------------
 
 def _history_row(run: dict) -> dict:
-    return {
+    row = {
         "date": run["date"],
         "path": run["rel"],
         "kind": run["kind"],
@@ -1352,13 +1564,23 @@ def _history_row(run: dict) -> dict:
         "has_json": run["report_json"] is not None,
         "has_stats": run["stats_path"] is not None,
     }
+    if run.get("report_json") is not None:
+        try:
+            bundle = _decision_bundle(_read_json(run["report_json"]))
+            row.update({key: bundle[key] for key in (
+                "fees_usd", "accounts_after", "trade_policy", "execution_assumption", "validated")})
+        except Exception:
+            pass
+    return row
 
 
 def _fund_payload(run: Optional[dict]) -> dict:
     history = [_history_row(r) for r in _fm_runs()]
     if run is None:
         return {"date": None, "path": None, "markdown": None, "decision": None, "trades": [],
-                "warnings": [], "history": history}
+                "warnings": [], "validated": None, "fees_usd": None,
+                "accounts_after": None, "trade_policy": None, "execution_assumption": None,
+                "history": history}
     view = _load_run_view(run)
     bundle = _decision_bundle(view.get("json"))
     return {
@@ -1373,6 +1595,11 @@ def _fund_payload(run: Optional[dict]) -> dict:
         "ending_cash": bundle["ending_cash"],
         "ending_cash_pct": bundle["ending_cash_pct"],
         "post_trade_risk": bundle["post_trade_risk"],
+        "fees_usd": bundle["fees_usd"],
+        "accounts_after": bundle["accounts_after"],
+        "trade_policy": bundle["trade_policy"],
+        "execution_assumption": bundle["execution_assumption"],
+        "validated": bundle["validated"],
         "history": history,
     }
 
@@ -1730,6 +1957,14 @@ def _build_scout_manifest(body: ScoutRequest) -> dict:
     scout_seat = next((seat for seat in seat_payload.get("seats", []) if seat.get("id") == "theme_scout"), None)
     if body.include_llm and scout_seat is None:
         raise HTTPException(409, "Theme scout model configuration is unavailable")
+    targets = _read_json(TARGETS) if TARGETS.is_file() else {}
+    effective_trade_policy = None
+    if body.include_llm:
+        try:
+            from fund_manager.trade_validation import parse_trade_policy
+            effective_trade_policy = parse_trade_policy(targets)
+        except (ImportError, ValueError) as exc:
+            raise HTTPException(400, f"Trade policy is invalid: {exc}") from exc
     input_fingerprint = _execution_input_fingerprint()
     book = _read_json(BOOK) if BOOK.is_file() else {"positions": []}
     holdings = list(dict.fromkeys(str(row.get("ticker") or "").upper()
@@ -1744,13 +1979,13 @@ def _build_scout_manifest(body: ScoutRequest) -> dict:
                  if scout_seat.get("est_cost_usd") is not None else None)
                 if body.include_llm else 0.0)
     import cost_ledger
-    targets = _read_json(TARGETS) if TARGETS.is_file() else {}
     cost_policy = cost_ledger.budget_policy(targets)
     weekly_spend = cost_ledger.weekly_spend(DATA, datetime.now(timezone.utc).date(), targets)
     manifest = {
         "mode": body.mode,
         "sectors": sectors,
         "include_llm": body.include_llm,
+        "trade_policy": effective_trade_policy,
         "single_call": bool(body.include_llm and body.single_call),
         "model": ({key: scout_seat.get(key) for key in
                    ("id", "label", "model", "effort", "max_tokens", "temperature", "est_cost_usd")}
@@ -1893,6 +2128,11 @@ def _build_run_manifest(body: RunRequest) -> dict:
                 stage["include_existing_ticker_risk_notes"] = True
 
     targets = _read_json(TARGETS) if TARGETS.is_file() else {}
+    try:
+        from fund_manager.trade_validation import parse_trade_policy
+        effective_trade_policy = parse_trade_policy(targets)
+    except (ImportError, ValueError) as exc:
+        raise HTTPException(400, f"Trade policy is invalid: {exc}") from exc
     import cost_ledger
     cost_policy = cost_ledger.budget_policy(targets)
     expected_paid = len(analysis_tickers) if mode in {"ANL", "ANL+REV"} else 0
@@ -1933,6 +2173,7 @@ def _build_run_manifest(body: RunRequest) -> dict:
     input_fingerprint = _execution_input_fingerprint()
     manifest = {
         "mode": mode,
+        "trade_policy": effective_trade_policy,
         "request": {key: value for key, value in body.model_dump().items()
                     if key not in {"confirm", "manifest_sha256"}},
         "analysis_date": body.analysis_date or "auto (resolved by market preflight)",
@@ -2057,5 +2298,5 @@ app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("ARGUS_PORT", "8787"))
+    port = int(os.environ.get("ARGUS_PORT", "8788"))
     uvicorn.run(app, host=_BIND_HOST, port=port)

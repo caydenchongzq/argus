@@ -36,14 +36,15 @@ def book_version(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def normalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+def normalize_snapshot(snapshot: dict[str, Any], *, account_id: str | None = None,
+                       account_label: str = "Tiger account") -> dict[str, Any]:
     """Validate the stock-only import scope and preserve out-of-scope disclosures."""
     issues: list[str] = []
     warnings: list[str] = []
     if snapshot.get("scope") != "stocks_only":
         issues.append("Snapshot import scope is missing or unsupported")
     else:
-        warnings.append("This replaces Argus with supported US stocks only; other instrument types are excluded")
+        warnings.append("This refresh replaces only the selected Tiger account's supported US stock positions; other accounts are retained")
     if snapshot.get("complete") is not True:
         issues.append("Tiger did not confirm a complete stock positions and assets snapshot")
     query_errors = snapshot.get("query_errors")
@@ -51,7 +52,7 @@ def normalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         issues.extend(f"Positions unavailable for {kind}: {reason}" for kind, reason in query_errors)
     excluded_categories = snapshot.get("excluded_categories")
     if isinstance(excluded_categories, list) and excluded_categories:
-        warnings.append("This import replaces Argus with stock positions only; other instrument categories are excluded")
+        warnings.append("Other instrument categories in the selected account are outside the imported scope; other accounts are unchanged")
         warnings.extend(f"{kind} excluded from stock-only import: {reason}" for kind, reason in excluded_categories)
     fetched = snapshot.get("fetched_at")
     if not isinstance(fetched, str) or not fetched:
@@ -79,7 +80,7 @@ def normalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
                                  "reason": f"stock positions query returned unexpected or missing instrument type {sec_type or 'unknown'}"})
                 continue
             excluded.append({"ticker": symbol or f"row {index + 1}", "market": market,
-                             "reason": f"not included in stock-only import ({sec_type or 'unknown'}); existing positions will be replaced"})
+                             "reason": f"not included in this account's stock-only refresh ({sec_type or 'unknown'}); other accounts are retained"})
             continue
         if market != "US":
             rejected.append({"ticker": symbol or f"row {index + 1}", "market": market,
@@ -94,13 +95,18 @@ def normalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             continue
         try:
             quantity = float(raw.get("quantity"))
+        except (TypeError, ValueError):
+            rejected.append({"ticker": symbol, "reason": "quantity missing or invalid"})
+            continue
+        try:
             average = float(raw.get("average_price"))
         except (TypeError, ValueError):
-            rejected.append({"ticker": symbol, "reason": "quantity or average cost missing"})
+            average = math.nan
+        if not math.isfinite(quantity) or quantity == 0:
+            rejected.append({"ticker": symbol, "reason": "invalid quantity"})
             continue
-        if not math.isfinite(quantity) or quantity == 0 or not math.isfinite(average) or average <= 0:
-            rejected.append({"ticker": symbol, "reason": "invalid quantity or average cost"})
-            continue
+        if not math.isfinite(average) or average <= 0:
+            average = None
         if quantity < 0:
             rejected.append({"ticker": symbol, "market": market,
                              "reason": "short positions are unsupported by the current portfolio model"})
@@ -109,7 +115,9 @@ def normalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         identity = (market, symbol)
         entry = aggregated.get(identity)
         if entry is None:
-            aggregated[identity] = {"ticker": symbol, "quantity": quantity, "average_price": average}
+            aggregated[identity] = {"ticker": symbol, "quantity": quantity, "average_price": average,
+                                    "cost_method": "average_cost" if average is not None else None,
+                                    "cost_source": "tiger_average_cost" if average is not None else None}
         else:
             if entry["quantity"] * quantity < 0:
                 rejected.append({"ticker": symbol, "reason": "duplicate positions have opposing quantities"})
@@ -118,7 +126,11 @@ def normalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             if total == 0:
                 rejected.append({"ticker": symbol, "reason": "duplicate positions net to zero"})
                 continue
-            entry["average_price"] = (entry["quantity"] * entry["average_price"] + quantity * average) / total
+            if entry.get("average_price") is not None and average is not None:
+                entry["average_price"] = (entry["quantity"] * entry["average_price"] + quantity * average) / total
+            else:
+                entry["average_price"] = None
+                entry["cost_method"] = entry["cost_source"] = None
             entry["quantity"] = total
 
     try:
@@ -137,12 +149,14 @@ def normalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     if rejected:
         issues.append("One or more positions are unsupported or incomplete")
     currency = next(iter(currencies), cash_currency)
+    account_positions = sorted(aggregated.values(), key=lambda p: p["ticker"])
     book = {
         "cash": cash if math.isfinite(cash) else None,
         "currency": currency,
-        "positions": sorted(aggregated.values(), key=lambda p: p["ticker"]),
+        "positions": [{key: position[key] for key in ("ticker", "quantity", "average_price")}
+                      for position in account_positions],
     }
-    return {
+    result = {
         "scope": "stocks_only",
         "book": book,
         "currency": currency,
@@ -155,6 +169,19 @@ def normalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "issues": issues,
         "can_apply": not issues,
     }
+    if account_id:
+        result["account"] = {
+            "account_id": account_id,
+            "broker": "tiger",
+            "label": account_label,
+            "scope": "US_STOCKS",
+            "currency": currency or "USD",
+            "cash": book["cash"] if cash_currency in {"", "USD"} else None,
+            "available_cash": None,
+            "fetched_at": fetched,
+            "positions": account_positions,
+        }
+    return result
 
 
 def apply_replacement(path: Path, new_book: dict[str, Any], expected_version: str) -> Path | None:

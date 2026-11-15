@@ -15,6 +15,8 @@ def fingerprint(data_root: Path, ta_root: Path, config_paths: Mapping[str, Path]
     """
     paths = {
         "book": data_root / "my_book.json",
+        "portfolio_book_contract": ta_root / "addons" / "portfolio_book.py",
+        "trade_policy_contract": ta_root / "addons" / "fund_manager" / "trade_validation.py",
         "watchlist": data_root / "watchlist.json",
         "targets": data_root / "targets.json",
         "themes": ta_root / "addons" / "fund_manager" / "themes.json",

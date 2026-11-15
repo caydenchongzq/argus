@@ -4,7 +4,7 @@
 #>
 [CmdletBinding()]
 param(
-  [int]$Port = 8787,
+  [int]$Port = 8788,
   [switch]$Install
 )
 

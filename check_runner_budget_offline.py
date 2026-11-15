@@ -30,6 +30,12 @@ def main() -> int:
         ta = root / "ta"
         fm = ta / "addons" / "fund_manager"
         fm.mkdir(parents=True)
+        real_addons = HERE.parent / "TradingAgents" / "addons"
+        (ta / "addons" / "portfolio_book.py").write_text(
+            (real_addons / "portfolio_book.py").read_text(encoding="utf-8"), encoding="utf-8")
+        (fm / "trade_validation.py").write_text(
+            (real_addons / "fund_manager" / "trade_validation.py").read_text(encoding="utf-8"),
+            encoding="utf-8")
         symbols = ta / "tradingagents" / "dataflows"
         symbols.mkdir(parents=True)
         (ta / "tradingagents" / "__init__.py").write_text("\n", encoding="utf-8")
@@ -42,7 +48,9 @@ def main() -> int:
             (ta / f"{module}.py").write_text("\n", encoding="utf-8")
         data = root / "data"
         (data / "fund_manager" / "run_costs").mkdir(parents=True)
-        (data / "my_book.json").write_text(json.dumps({"positions": [{"ticker": "AAA"}, {"ticker": "BBB"}]}), encoding="utf-8")
+        (data / "my_book.json").write_text(json.dumps({
+            "positions": [{"ticker": "AAA", "quantity": 1}, {"ticker": "BBB", "quantity": 1}],
+            "cash": 0, "currency": "USD"}), encoding="utf-8")
         (data / "watchlist.json").write_text(json.dumps([{"ticker": "AAA"}, {"ticker": "CCC"}]), encoding="utf-8")
         wrapper_watch = data / "wrapper-watchlist.json"
         wrapper_book = data / "wrapper-book.json"
