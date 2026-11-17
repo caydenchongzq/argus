@@ -6,6 +6,10 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.join(__dirname, "static", "app.js"), "utf8");
 const runStart = source.indexOf('$("#btnStartRun").addEventListener("click"');
 const runEnd = source.indexOf("function isPendingPaid()", runStart);
+const selectAllStart = source.indexOf('$("#selAll").addEventListener("click"');
+const selectAllEnd = source.indexOf("function statusMarkup", selectAllStart);
+const handoffStart = source.indexOf("function syncRefreshButton()");
+const handoffEnd = source.indexOf("function selectedScoutSectors()", handoffStart);
 const themeStart = source.indexOf("async function queueThemeRun(mode)");
 const themeEnd = source.indexOf("/* ---------- agents ---------- */", themeStart);
 assert.ok(runStart >= 0 && runEnd > runStart, "actual run and scenario handlers should exist");
@@ -29,12 +33,13 @@ class Element {
     for (const listener of this.listeners.click || []) promiseQueue.items.push(listener(event));
   }
   scrollIntoView() { this.scrolled = true; }
+  closest() { return { classList: this.classList }; }
 }
 
 const ids = [
   "btnStartRun", "btnScreen", "btnScout", "tab-runs", "confirmText", "tickerGrid", "selNone",
   "optRunAgents", "optAnlOnly", "optNoLLM", "optWatchlist", "optRisk", "optNoMacro", "optDate", "optSince",
-  "optScoutLlm", "scoutSectors", "scoutSectorCount",
+  "optScoutLlm", "scoutSectors", "scoutSectorCount", "selAll", "wlTable", "wlRefreshSelected",
 ];
 const els = Object.fromEntries(ids.map((id) => [id, new Element(id)]));
 const checkboxes = ["AAA", "BBB", "CCC"].map((value) => Object.assign(new Element(value), { value }));
@@ -45,6 +50,8 @@ const allCalls = [];
 const toast = [];
 const tabs = [];
 const state = {
+  flags: { IncludeWatchlist: true },
+  refreshTickers: ["CCC"],
   bookTickers: ["AAA", "BBB"],
   watchlist: [{ ticker: "CCC", origins: ["candidate"] }],
   pendingRun: null,
@@ -56,6 +63,7 @@ const promiseQueue = { items: [] };
 
 function $(selector) { return els[selector.slice(1)] || new Element(selector); }
 function $$(selector) {
+  if (selector === "#tickerGrid input") return checkboxes;
   if (selector === "#tickerGrid input:checked") return checkboxes.filter((input) => input.checked);
   if (selector === "#scoutSectors input[data-scout-sector]:checked") return sectors.filter((input) => input.checked);
   if (selector === "#scoutSectors input[data-scout-sector]") return sectors;
@@ -110,10 +118,18 @@ function select(tickers) { checkboxes.forEach((input) => { input.checked = ticke
 function lastCall(endpoint) { return allCalls.filter((call) => call.endpoint === endpoint).at(-1); }
 els.selNone.addEventListener("click", () => { checkboxes.forEach((input) => { input.checked = false; }); });
 
-vm.runInNewContext(`${source.slice(runStart, runEnd)}\n${source.slice(themeStart, themeEnd)}`, {
+const appContext = {
   $, $$, state, api, openConfirm, showToast, setTab, selectedTickers, selectedScoutSectors, updateRunWarn,
   iconSvg, moneyLevel, promiseQueue,
-});
+};
+vm.runInNewContext(`${source.slice(runStart, runEnd)}\n${source.slice(themeStart, themeEnd)}`, appContext);
+assert.ok(selectAllStart >= 0 && selectAllEnd > selectAllStart, "select-all handler should exist");
+vm.runInNewContext(source.slice(selectAllStart, selectAllEnd), appContext);
+els.selAll.listeners.click[0]({});
+assert.deepEqual(selectedTickers(), ["AAA", "BBB", "CCC"], "select all should select the book and watchlist union");
+select([]);
+assert.ok(handoffStart >= 0 && handoffEnd > handoffStart, "earnings refresh handoff should exist");
+vm.runInNewContext(source.slice(handoffStart, handoffEnd), appContext);
 
 // Snapshot requests a no-LLM manifest with no selected symbols and opens confirmation.
 runScenario("snapshot");

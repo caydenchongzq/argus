@@ -2,6 +2,7 @@
 // or broker/model access.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const vm = require("node:vm");
 require("./static/formatters.js");
 require("./static/fund-trade-render.js");
 
@@ -65,5 +66,18 @@ assert.equal(globalThis.argusRenderTradePolicy(null, format), "");
 assert.match(app, /argusRenderTradePolicy\(data\.trade_policy/);
 assert.match(app, /data\.validated_trades \|\| data\.trades \|\| \[\]/);
 assert.match(app, /argusRenderFundTrades\(trades/);
+assert.match(app, /review_outcome === "incomplete"/);
+assert.match(app, /fmUnvalidatedCard/);
+const rawStart = app.indexOf("function renderUnvalidatedOutputs(");
+const rawEnd = app.indexOf("async function exportReportPdf", rawStart);
+assert.ok(rawStart >= 0 && rawEnd > rawStart, "unvalidated output should use a dedicated safe renderer");
+const rawFixture = { sanitizedBeforeReturn: false };
+vm.runInNewContext(`${app.slice(rawStart, rawEnd)}\nglobalThis.result = renderUnvalidatedOutputs([{ label: "model", mode: "text", content: "raw" }], { esc: String, marked: { parse: () => "<img src=x onerror=alert(1)><script>alert(2)</script><p>safe</p>" }, DOMPurify: { sanitize(html) { globalThis.sanitizedBeforeReturn = true; return html.replace(/<script>[\\s\\S]*?<\\/script>/gi, "").replace(/ onerror=[^ >]*/gi, ""); } } });`, rawFixture);
+assert.equal(rawFixture.sanitizedBeforeReturn, true);
+assert.doesNotMatch(rawFixture.result, /<script|onerror=/i, "raw model HTML must be sanitized before insertion");
+assert.match(rawFixture.result, /<p>safe<\/p>/);
+assert.match(app, /renderUnvalidatedOutputs\(rawOutputs, \{ esc, marked, DOMPurify \}\)/);
+assert.match(app, /unvalidated_outputs/);
+assert.match(app, /raw model output|raw model output/i);
 
 console.log("argus fund manager UI offline check: ok (statuses, explicit empty, legacy, nulls, escaped text)");

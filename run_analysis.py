@@ -77,12 +77,40 @@ def _tickers(book_path: Path, watch_path: Path, selected: list[str], include_wat
 
 def _budget(python: str, addons: Path, root: Path, day: str, kind: str, cwd: Path, env: dict[str, str],
             next_usd: float | None = None) -> int:
+    if not _reconcile_attempt_costs(addons, root):
+        error = "fund-manager response costs could not be reconciled; paid run stopped before budget check"
+        _set_run_state("failed", exit_code=78, error=error)
+        return 78
     command = _script_command(python, cwd, addons / "cost_ledger.py", "--data-root", str(root),
                               "--date", day, "--kind", kind)
     if next_usd is not None:
         command.extend(["--next", str(next_usd)])
     code, _ = _run(command, cwd=cwd, env=env, label=f"budget:{kind}")
     return code
+
+
+def _reconcile_attempt_costs(addons: Path, root: Path) -> bool:
+    """Fold model response journals into the ledger before any paid budget gate."""
+    addon_path = str(addons)
+    if addon_path not in sys.path:
+        sys.path.insert(0, addon_path)
+    try:
+        ledger = importlib.import_module("cost_ledger")
+        result = ledger.reconcile_attempt_journals(root)
+    except Exception as exc:
+        print(f"RUN_COST_RECONCILIATION_FAILED={exc}", flush=True)
+        return False
+    if not isinstance(result, dict):
+        print("RUN_COST_RECONCILIATION_FAILED=invalid reconciliation result", flush=True)
+        return False
+    failures = result.get("failures") or []
+    if failures:
+        failure_list = failures if isinstance(failures, (list, tuple)) else [failures]
+        print("RUN_COST_RECONCILIATION_FAILED=" + "; ".join(map(str, failure_list)), flush=True)
+        return False
+    print("COST_JOURNALS_RECONCILED="
+          f"{result.get('reconciled_count', 0)}/{result.get('response_count', 0)}", flush=True)
+    return True
 
 
 def _set_run_state(status: str, **updates) -> None:
@@ -182,8 +210,8 @@ def _main(argv: list[str] | None = None) -> int:
             "TRADINGAGENTS_CACHE_DIR": str(root / "cache"),
             "TZ": "EST5EDT,M3.2.0,M11.1.0",
         })
-        paid_execution = (not args.scout_mode or
-                          (args.scout_mode == "weekly" and args.scout_llm))
+        paid_execution = (not args.no_llm and
+                          (not args.scout_mode or (args.scout_mode == "weekly" and args.scout_llm)))
         if paid_execution:
             if str(addons) not in sys.path:
                 sys.path.insert(0, str(addons))

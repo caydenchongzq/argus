@@ -9,13 +9,16 @@ const state = {
   portfolio: null,
   portfolioAccountId: "all",
   watchlist: [],
+  refreshTickers: [],
   watchlistProposal: null,
   reports: [],
   latestByTicker: {},
   fund: null,
+  themeReport: null,
   runs: [],
   flags: {},
   selectedReport: null,
+  stockReport: null,
   selectedRun: null,
   runScopeRows: {},
   pendingTheme: null,
@@ -635,19 +638,135 @@ async function loadWatchlist() {
     api("/api/watchlist/proposal"),
   ]);
   state.watchlist = data.items || [];
+  state.refreshTickers = state.refreshTickers.filter((ticker) => state.watchlist.some((item) => item.ticker === ticker && item.earnings_stale === true));
   state.watchlistProposal = proposal;
   const tb = $("#wlTable tbody");
-  tb.innerHTML = state.watchlist.map((it) => `
-    <tr>
+  tb.innerHTML = state.watchlist.map((it) => {
+    const eps = it.earnings_data || {};
+    const lastEvent = eps.last || {};
+    const nextEvent = eps.next || {};
+    const calendarMeta = eps.error
+      ? `Calendar error: ${esc(eps.error)}`
+      : eps.fetched_at
+        ? `Calendar checked ${esc(formatDateTime(eps.fetched_at))}${Number.isFinite(Number(eps.source_age_days)) ? ` · ${esc(eps.source_age_days)}d old` : ""}`
+        : eps.as_of
+          ? `Calendar as of ${esc(eps.as_of)} · age unknown`
+          : "Calendar coverage unavailable";
+    const last = it.earnings_last_datetime || (parseKnownDate(lastEvent.datetime) ? lastEvent.datetime : null);
+    const lastDate = last || lastEvent.date || eps.last_date;
+    const next = it.earnings_next_datetime || (parseKnownDate(nextEvent.datetime) ? nextEvent.datetime : null);
+    const nextDateValue = next || nextEvent.date || eps.next_date;
+    const earningsEps = earningsEpsValues(lastEvent, nextEvent, eps);
+    const earningsData = [
+      earningsEps.lastReported != null ? `Reported EPS ${esc(earningsEps.lastReported)}` : "",
+      earningsEps.lastEstimated != null ? `Estimate ${esc(earningsEps.lastEstimated)}` : "",
+      earningsEps.lastSurprise != null ? `Surprise ${esc(earningsEps.lastSurprise)}%` : "",
+    ].filter(Boolean).join(" · ") || "EPS unavailable";
+    const nextEstimate = earningsEps.nextEstimated;
+    const nextDate = parseEarningsDate(nextDateValue);
+    const now = new Date();
+    const soon = nextDate && dayDistance(now, nextDate) >= 0 && dayDistance(now, nextDate) <= 5;
+    const stale = it.earnings_stale === true;
+    const status = stale ? "Earnings reported · rerun needed" : it.earnings_status === "updated" ? "Updated after earnings" : it.earnings_status === "missing" ? "No report" : it.earnings_status === "unknown" ? "Freshness unknown" : "—";
+    return `<tr class="${soon ? "ar-earnings-soon" : ""} ${stale ? "ar-earnings-stale" : ""}">
       <td class="ar-ticker">${esc(it.ticker)}</td>
       <td>${esc(it.origin || "candidate")}</td>
       <td>${esc(it.sector || "")}</td>
       <td>${esc(it.instrument_type || "Unknown")}</td>
       <td>${esc(it.sleeve === "core_etf" ? "ETF" : it.sleeve === "swing" ? "Stock / cash" : "Unclassified")}</td>
+      <td>${lastDate ? `${esc(formatEarningsDate(lastDate))}<br/><span class="ar-subtle">${earningsData}</span>` : `<span class="ar-subtle">No completed date</span>`}<br/><span class="ar-subtle">${calendarMeta}</span></td>
+      <td>${nextDateValue ? `<span>${esc(formatEarningsDate(nextDateValue))}</span>${nextEstimate != null ? `<br/><span class="ar-subtle">Est. EPS ${esc(nextEstimate)}</span>` : ""}${soon ? `<br/><span class="ar-earnings-label">Within 5 days</span>` : ""}` : `<span class="ar-subtle">No upcoming date</span>`}</td>
+      <td>${it.report_generated_at ? esc(formatDateTime(it.report_generated_at)) : it.report_generation_unknown ? "Time unknown" : "No report"}<br/><span class="${stale ? "ar-earnings-label" : "ar-subtle"}">${esc(status)}</span></td>
+      <td>${stale && it.instrument_type !== "ETF" ? `<input type="checkbox" data-refresh-ticker="${esc(it.ticker)}" aria-label="Select ${esc(it.ticker)} to analyze after earnings" ${state.refreshTickers.includes(it.ticker) ? "checked" : ""}/>` : "—"}</td>
       <td class="ar-actions">${(it.origins || ["candidate"]).includes("candidate") ? `<button type="button" class="ar-btn ar-btn--sm ar-btn--danger" data-rm="${esc(it.ticker)}" aria-label="Remove ${esc(it.ticker)} candidate" data-tooltip="Remove saved candidate ${esc(it.ticker)}">${iconSvg("trash-2")}<span class="ar-btn__label">Remove</span></button>` : ""}</td>
-    </tr>`).join("") || `<tr><td colspan="6" class="ar-subtle">No holdings or candidates to monitor</td></tr>`;
+    </tr>`;
+  }).join("") || `<tr><td colspan="10" class="ar-subtle">No holdings or candidates to monitor</td></tr>`;
+  syncRefreshButton();
   renderWatchlistProposal();
 }
+
+function parseKnownDate(value) {
+  if (typeof value !== "string" || !/(Z|[+-]\d\d:\d\d)$/i.test(value)) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseEarningsDate(value) {
+  const known = parseKnownDate(value);
+  if (known) return known;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day ? parsed : null;
+}
+
+function earningsEpsValues(lastEvent, nextEvent, earnings) {
+  return {
+    lastReported: lastEvent.reported_eps ?? earnings.reported_eps,
+    lastEstimated: lastEvent.estimated_eps,
+    lastSurprise: lastEvent.surprise_percent ?? earnings.surprise_percent,
+    nextEstimated: nextEvent.estimated_eps,
+  };
+}
+
+function formatDateTime(value) {
+  const date = parseKnownDate(value);
+  return date ? date.toLocaleString() : "Time unknown";
+}
+
+function formatEarningsDate(value) {
+  const parsed = parseKnownDate(value);
+  if (parsed) return parsed.toLocaleString();
+  const date = parseEarningsDate(value);
+  return date ? `${date.toLocaleDateString()} (time unknown)` : "Time unknown";
+}
+
+function dayDistance(from, to) {
+  const start = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const end = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((end - start) / 86400000);
+}
+
+function syncRefreshButton() {
+  const button = $("#wlRefreshSelected");
+  if (button) {
+    button.disabled = !state.refreshTickers.length;
+    button.textContent = state.refreshTickers.length
+      ? `Analyze ${state.refreshTickers.length} selected + review`
+      : "Analyze selected + review";
+  }
+}
+
+$("#wlTable").addEventListener("change", (event) => {
+  const input = event.target.closest("[data-refresh-ticker]");
+  if (!input) return;
+  const ticker = input.dataset.refreshTicker;
+  state.refreshTickers = input.checked
+    ? [...new Set([...state.refreshTickers, ticker])]
+    : state.refreshTickers.filter((item) => item !== ticker);
+  syncRefreshButton();
+});
+
+$("#wlRefreshSelected").addEventListener("click", async () => {
+  const tickers = [...state.refreshTickers];
+  if (!tickers.length) return;
+  await setTab("runs");
+  const selected = new Set(tickers);
+  $$("#tickerGrid input").forEach((input) => {
+    input.checked = selected.has(input.value);
+    input.closest(".ar-ticker-chip").classList.toggle("on", input.checked);
+  });
+  state.refreshTickers = [];
+  syncRefreshButton();
+  const held = new Set(state.bookTickers);
+  const hasHeld = tickers.some((ticker) => held.has(ticker));
+  const hasCandidate = tickers.some((ticker) => !held.has(ticker)
+    && state.watchlist.some((row) => row.ticker === ticker && (row.origins || ["candidate"]).includes("candidate")));
+  configureScenario({ agents: hasHeld, watchlist: hasCandidate, selection: "preserve" });
+  updateRunWarn();
+  $("#btnStartRun").scrollIntoView({ behavior: "smooth", block: "center" });
+  showToast("Review the fresh analysis scope, then confirm to start.", "warning");
+});
 
 function selectedScoutSectors() {
   return $$("#scoutSectors input[data-scout-sector]:checked").map((el) => el.dataset.scoutSector);
@@ -817,15 +936,21 @@ $("#repList").addEventListener("click", async (e) => {
   const item = e.target.closest("[data-id]");
   if (!item) return;
   state.selectedReport = item.dataset.id;
+  const requestedId = state.selectedReport;
+  state.stockReport = null;
+  $("#repExportPdf").disabled = true;
   renderReportList();
   try {
-    const data = await api(`/api/reports/${encodeURIComponent(item.dataset.id)}`);
+    const data = await api(`/api/reports/${encodeURIComponent(requestedId)}`);
+    if (state.selectedReport !== requestedId) return;
+    state.stockReport = data;
+    $("#repExportPdf").disabled = !data.markdown;
     $("#repTitle").textContent = data.meta.ticker;
     $("#repMeta").innerHTML = `${data.meta.rating ? `${ratingMarkup(data.meta.rating)} · ` : ""}
       analysis ${esc(data.meta.analysis_date || "—")} · generated ${esc(data.meta.generated || "—")}`;
     renderMarkdown($("#repMd"), data.markdown || "");
   } catch (err) {
-    showToast(err.message, "danger");
+    if (state.selectedReport === requestedId) showToast(err.message, "danger");
   }
 });
 
@@ -844,7 +969,7 @@ async function loadFund(path) {
     $("#fmHistory").innerHTML = (data.history || []).map((h) => `
       <div class="ar-list__item" data-path="${esc(h.path || h.date)}">
         <div><strong>${esc(h.path || h.date)}</strong>
-          <div class="ar-list__meta">${esc([h.kind, h.has_json && "json", h.has_stats && "stats"].filter(Boolean).join(" · "))}</div>
+      <div class="ar-list__meta">${esc([h.kind, h.review_outcome === "incomplete" && "review incomplete", h.review_outcome === "snapshot" && "quantitative snapshot", h.has_json && "json", h.has_stats && "stats"].filter(Boolean).join(" · "))}</div>
         </div>
       </div>`).join("") || `<div class="ar-muted">No history</div>`;
   }
@@ -859,7 +984,17 @@ async function loadFund(path) {
   const warns = (data.warnings || []).map((w) => `<li>${esc(w)}</li>`).join("");
   const cash = d.cash_decision || data.cash_decision || {};
   const policySummary = globalThis.argusRenderTradePolicy(data.trade_policy, { moneyLevel });
+  const incomplete = data.review_outcome === "incomplete";
+  const snapshot = data.review_outcome === "snapshot" || data.kind === "snapshot";
+  const rawOutputs = data.unvalidated_outputs || [];
+  $("#fmUnvalidatedCard").classList.toggle("hidden", !(incomplete && rawOutputs.length));
+  $("#fmIncompleteNotice").textContent = incomplete
+    ? `This fund-manager review is incomplete${data.incomplete_stage ? ` at ${data.incomplete_stage}` : ""}. The content below is raw model output; no validated decision or trade list was produced.${data.incomplete_error ? ` ${data.incomplete_error}` : ""}`
+    : "";
+  $("#fmUnvalidatedOutput").innerHTML = renderUnvalidatedOutputs(rawOutputs, { esc, marked, DOMPurify });
   $("#fmSummary").innerHTML = `
+    ${incomplete ? `<p class="ar-warning" role="alert">Review incomplete${data.incomplete_stage ? ` · ${esc(data.incomplete_stage)}` : ""}; do not rely on this run as a completed recommendation.</p>` : ""}
+    ${snapshot ? `<p class="ar-subtle">Quantitative snapshot only; model review was not requested.</p>` : ""}
     <p><strong>${esc(d.headline || "—")}</strong></p>
     <p>${summary ? esc(summary) : "<span class='ar-muted'>No summary field</span>"}</p>
     <p class="ar-subtle">Confidence: ${esc(d.confidence ?? "—")}
@@ -869,7 +1004,46 @@ async function loadFund(path) {
       ${policySummary ? ` · ${esc(policySummary)}` : ""}</p>
     ${warns ? `<ul>${warns}</ul>` : ""}`;
   renderMarkdown($("#fmMd"), data.markdown || "");
+  $("#fmExportPdf").disabled = !data.markdown;
 }
+
+function renderUnvalidatedOutputs(outputs, { esc, marked, DOMPurify }) {
+  return outputs.map((item) => {
+    const rendered = item.content ? marked.parse(item.content) : "";
+    const safe = DOMPurify.sanitize(rendered, { USE_PROFILES: { html: true } });
+    return `<section class="ar-unvalidated-item"><h3 class="ar-h3">${esc(item.label || "Model response")} · ${esc(item.mode || "raw")}</h3><p class="ar-subtle">${esc(item.reason || "This output has not passed structured parsing and trade validation.")}</p><div class="ar-md">${safe}</div></section>`;
+  }).join("");
+}
+
+async function exportReportPdf(kind) {
+  const report = kind === "fund" ? state.fund : kind === "themes" ? state.themeReport : state.stockReport;
+  if (!report || !report.markdown) return;
+  const button = $({ fund: "#fmExportPdf", themes: "#themeExportPdf", stock: "#repExportPdf" }[kind]);
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/report-pdf", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, markdown: report.markdown }),
+    });
+    if (!response.ok) throw new Error(`PDF export failed (${response.status})`);
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    const ticker = String(report.meta?.ticker || "stock").replace(/[^a-z0-9._-]/gi, "_");
+    link.download = kind === "fund" ? "fund-manager-report.pdf" : kind === "themes" ? "theme-scout-report.pdf" : `${ticker}-report.pdf`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (err) {
+    showToast(err.message, "danger");
+  } finally {
+    const current = kind === "fund" ? state.fund : kind === "themes" ? state.themeReport : state.stockReport;
+    button.disabled = !current?.markdown;
+  }
+}
+
+$("#repExportPdf").addEventListener("click", () => exportReportPdf("stock"));
+$("#fmExportPdf").addEventListener("click", () => exportReportPdf("fund"));
+$("#themeExportPdf").addEventListener("click", () => exportReportPdf("themes"));
 
 $("#fmDate").addEventListener("change", (e) => loadFund(e.target.value).catch((err) => showToast(err.message, "danger")));
 $("#fmHistory").addEventListener("click", (e) => {
@@ -961,6 +1135,8 @@ function freshAnalysisScope(runAgents, includeWatchlist, selectedTickers = []) {
 }
 
 function updateRunWarn() {
+  const selectedCount = selectedTickers().length;
+  $("#runSelectionSummary").textContent = `${selectedCount} ticker${selectedCount === 1 ? "" : "s"} selected. Empty means all applicable positions when agents run.`;
   const agents = $("#optRunAgents").checked;
   const watchAgents = $("#optWatchlist").checked;
   const nollm = $("#optNoLLM").checked;
@@ -995,6 +1171,15 @@ $("#selWatch").addEventListener("click", () => {
   $$("#tickerGrid input").forEach((i) => {
     i.checked = w.has(i.value);
     i.closest(".ar-ticker-chip").classList.toggle("on", i.checked);
+  });
+  updateRunWarn();
+});
+$("#selAll").addEventListener("click", () => {
+  $("#optRunAgents").checked = true;
+  $("#optWatchlist").checked = Boolean(state.flags.IncludeWatchlist);
+  $$("#tickerGrid input").forEach((input) => {
+    input.checked = true;
+    input.closest(".ar-ticker-chip").classList.add("on");
   });
   updateRunWarn();
 });
@@ -1325,6 +1510,7 @@ $("#confirmGo").addEventListener("click", async () => {
 /* ---------- themes ---------- */
 async function loadThemes() {
   const data = await api("/api/theme-scout");
+  state.themeReport = data;
   const when = formatSessionDate(data.date);
   $("#themeAsOf").textContent = when ? `As of ${when}` : "No report yet";
   $("#themeSub").textContent = data.model_skipped === false
@@ -1352,6 +1538,7 @@ async function loadThemes() {
     ? changes.map((c) => `<div>${esc(c.action || "")} <span class="ar-mono">${esc(c.ticker || "")}</span> ${esc(c.reason || "")}</div>`).join("")
     : `<p class="ar-muted">No watchlist edits in this pack.</p>`;
   renderMarkdown($("#themeMd"), data.markdown || "_No theme-scout report yet._");
+  $("#themeExportPdf").disabled = !data.markdown;
 }
 
 async function queueThemeRun(mode) {

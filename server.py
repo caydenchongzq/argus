@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -303,6 +303,47 @@ def _decision_bundle(js: Optional[dict]) -> dict:
     }
 
 
+def _fund_review_outcome(js: Optional[dict], kind: str) -> dict:
+    """Expose current and legacy model-review completion without trusting prose as a plan."""
+    js = js if isinstance(js, dict) else {}
+    outcome = js.get("review_outcome")
+    attempts = js.get("response_attempts") or []
+    raw = js.get("unvalidated_outputs")
+    raw = list(raw) if isinstance(raw, list) else []
+    for attempt in attempts if isinstance(attempts, list) else []:
+        if not isinstance(attempt, dict) or not isinstance(attempt.get("content"), str) or not attempt["content"].strip():
+            continue
+        if attempt.get("parse_status") in ("parsed", "valid") or attempt.get("schema_valid") is True:
+            continue
+        if any(existing.get("content") == attempt["content"] for existing in raw if isinstance(existing, dict)):
+            continue
+        raw.append({
+            "label": attempt.get("label") or attempt.get("stage") or "Model response",
+            "mode": attempt.get("mode") or "raw",
+            "content": attempt["content"],
+            "reason": attempt.get("parse_error") or attempt.get("error") or "Response did not produce a validated structured result.",
+        })
+    for content in js.get("raw_text_fallbacks") or []:
+        if isinstance(content, str) and content.strip() and not any(x.get("content") == content for x in raw if isinstance(x, dict)):
+            raw.append({"label": "Fund manager response", "mode": "text", "content": content,
+                        "reason": "Legacy text response was not parsed into a validated decision."})
+    if outcome not in ("complete", "incomplete", "snapshot"):
+        if kind == "snapshot" or js.get("no_llm") is True:
+            outcome = "snapshot"
+        elif (attempts or raw or js.get("llm_calls")) and not (js.get("draft") or js.get("final")):
+            outcome = "incomplete"
+        elif js.get("final") or js.get("draft"):
+            outcome = "complete"
+        else:
+            outcome = "unknown"
+    return {
+        "review_outcome": outcome,
+        "incomplete_stage": js.get("incomplete_stage"),
+        "incomplete_error": js.get("incomplete_error"),
+        "unvalidated_outputs": [x for x in raw if isinstance(x, dict) and isinstance(x.get("content"), str) and x["content"].strip()],
+    }
+
+
 def _latest_stats() -> Optional[dict]:
     for run in _fm_runs():
         if run["stats_path"] is None:
@@ -361,6 +402,7 @@ def _parse_report_meta(dirname: str, report_path: Path) -> dict:
     except Exception:
         pass
     stamp = f"{ymd}_{hms}" if ymd else ""
+    generated_at = _aware_iso(generated)
     return {
         "id": dirname,
         "ticker": ticker,
@@ -370,9 +412,23 @@ def _parse_report_meta(dirname: str, report_path: Path) -> dict:
         "rating": rating,
         "analysis_date": analysis_date,
         "generated": generated,
+        "generated_at": generated_at,
         "path": str(report_path),
         "mtime": report_path.stat().st_mtime if report_path.exists() else None,
     }
+
+
+def _aware_iso(value: Any) -> Optional[str]:
+    """Return a normalized UTC timestamp only when the source declares a timezone."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _list_reports() -> list[dict]:
@@ -486,6 +542,20 @@ class WatchlistAdd(BaseModel):
     ticker: str
     sector: str = "Other"
     type: str = Field(default="stock", pattern="^(stock|etf)$")
+
+
+class ReportPDFRequest(BaseModel):
+    kind: str = Field(pattern="^(fund|themes|stock)$")
+    markdown: str = Field(min_length=1, max_length=2_000_000)
+
+
+@app.post("/api/report-pdf")
+def report_pdf(body: ReportPDFRequest):
+    from report_pdf import render_report_pdf
+    title = {"fund": "Fund Manager Report", "themes": "Theme Scout Report", "stock": "Stock Report"}[body.kind]
+    content = render_report_pdf(body.markdown, title)
+    filename = {"fund": "fund-manager-report.pdf", "themes": "theme-scout-report.pdf", "stock": "stock-report.pdf"}[body.kind]
+    return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 class ScoutRequest(BaseModel):
@@ -1144,7 +1214,113 @@ def _staged_tickers() -> set[str]:
 @app.get("/api/watchlist")
 def get_watchlist():
     stats = _latest_stats() or {}
-    market = {str(p.get("ticker") or "").upper(): p for p in stats.get("positions") or []}
+    market = {}
+    for p in (stats.get("positions") or []) + (stats.get("watchlist") or []):
+        ticker = str(p.get("ticker") or "").upper()
+        if ticker:
+            market.setdefault(ticker, {}).update(p)
+    report_by_ticker = {}
+    for report in _list_reports():
+        report_by_ticker.setdefault(str(report.get("ticker") or "").upper(), report)
+
+    def enrich(row: dict) -> dict:
+        stats_row = market.get(row["ticker"], {})
+        earnings = stats_row.get("earnings") or {}
+        last_details = earnings.get("last_event") or {
+            "date": earnings.get("last"), "datetime": earnings.get("last_datetime"),
+            "reported_eps": earnings.get("reported_eps"), "estimated_eps": None,
+            "surprise_percent": earnings.get("surprise_percent"),
+        }
+        next_details = earnings.get("next_event") or {
+            "date": earnings.get("date"), "datetime": earnings.get("next_datetime"),
+            "reported_eps": None, "estimated_eps": earnings.get("estimated_eps"),
+            "surprise_percent": None,
+        }
+        last_event = _aware_iso(earnings.get("last_datetime"))
+        next_event = _aware_iso(earnings.get("next_datetime"))
+        now = datetime.now(timezone.utc)
+        next_event_passed = False
+        date_only_completed = False
+        date_only_today = False
+        if next_event:
+            next_dt = datetime.fromisoformat(next_event.replace("Z", "+00:00"))
+            if next_dt <= now and (not last_event or next_dt > datetime.fromisoformat(last_event.replace("Z", "+00:00"))):
+                # A cached upcoming event can become completed between fund-manager runs.
+                last_event = next_event
+                next_event = None
+                next_event_passed = True
+                last_details = {**next_details, "datetime": last_event}
+                next_details = None
+        upcoming_date = earnings.get("date")
+        if not next_event and not next_event_passed and upcoming_date:
+            if str(upcoming_date) < now.date().isoformat():
+                # Preserve a date-only event that passed after the snapshot; its
+                # unknown time means report freshness cannot be decided.
+                last_details = {**next_details, "datetime": None}
+                last_event = None
+                next_details = None
+                upcoming_date = None
+                date_only_completed = True
+            elif str(upcoming_date) == now.date().isoformat():
+                date_only_today = True
+        if next_event_passed:
+            upcoming_date = None
+        days_until = None
+        if upcoming_date:
+            try:
+                days_until = (datetime.fromisoformat(str(upcoming_date)).date() - now.date()).days
+            except ValueError:
+                pass
+        report = report_by_ticker.get(row["ticker"])
+        report_at = _aware_iso((report or {}).get("generated_at"))
+        earnings_fetched_at = _aware_iso(earnings.get("fetched_at"))
+        source_age_days = None
+        if earnings_fetched_at:
+            age_seconds = (now - datetime.fromisoformat(earnings_fetched_at.replace("Z", "+00:00"))).total_seconds()
+            source_age_days = max(0, int(age_seconds // 86400))
+        row["earnings_last_datetime"] = last_event
+        row["earnings_next_datetime"] = next_event
+        row["earnings_data"] = {
+            "last": {**last_details, "datetime": last_event} if last_details.get("date") or last_event else None,
+            "next": {**next_details, "datetime": next_event} if next_details and (next_details.get("date") or next_event) and upcoming_date else None,
+            "reported_eps": last_details.get("reported_eps"),
+            "estimated_eps": next_details.get("estimated_eps") if next_details else None,
+            "surprise_percent": last_details.get("surprise_percent"),
+            "last_date": ((last_event[:10] if last_event else None) or last_details.get("date") or earnings.get("last")),
+            "next_date": upcoming_date,
+            "calendar_days": days_until,
+            "as_of": earnings.get("as_of"),
+            "fetched_at": earnings_fetched_at,
+            "source_age_days": source_age_days,
+            "timing": earnings.get("timing"),
+            "error": earnings.get("error"),
+        }
+        row["report_generated_at"] = report_at
+        row["report_generation_unknown"] = bool(report and report_at is None)
+        has_completed_event = bool(last_details.get("date") or earnings.get("last"))
+        comparable_event = bool(last_event) and not date_only_completed and not date_only_today
+        if report is None:
+            if comparable_event:
+                row["earnings_status"] = "stale"
+                row["earnings_stale"] = True
+            elif has_completed_event or date_only_today:
+                row["earnings_status"] = "unknown"
+                row["earnings_stale"] = None
+            else:
+                row["earnings_status"] = "missing"
+                row["earnings_stale"] = False
+        elif not comparable_event or report_at is None:
+            row["earnings_status"] = "unknown"
+            row["earnings_stale"] = None
+        elif last_event and report_at:
+            stale = datetime.fromisoformat(last_event.replace("Z", "+00:00")) > datetime.fromisoformat(report_at.replace("Z", "+00:00"))
+            row["earnings_status"] = "stale" if stale else "updated"
+            row["earnings_stale"] = stale
+        else:
+            row["earnings_status"] = "updated"
+            row["earnings_stale"] = False
+        return row
+
     candidates = {}
     for item in _saved_watchlist_items():
         row = {key: value for key, value in item.items() if key != "sub_theme"}
@@ -1160,7 +1336,7 @@ def get_watchlist():
         live_type = _instrument_type(ticker, info) if info else "Unknown"
         row["instrument_type"] = live_type if live_type.startswith(("ETF", "Stock")) else (
             "ETF" if saved_type == "etf" else "Stock" if saved_type == "stock" else "Unknown")
-        candidates[ticker] = row
+        candidates[ticker] = enrich(row)
 
     book = _read_json(BOOK) if BOOK.exists() else {"positions": []}
     held_rows = []
@@ -1182,7 +1358,7 @@ def get_watchlist():
             "sleeve": (_sleeve(ticker, info)
                        if _instrument_type(ticker, info).startswith(("ETF", "Stock")) else None),
         })
-        held_rows.append(row)
+        held_rows.append(enrich(row))
     held_tickers = {row["ticker"] for row in held_rows}
     cleaned = held_rows + [row for ticker, row in candidates.items() if ticker not in held_tickers]
     return {"items": cleaned}
@@ -1270,7 +1446,25 @@ def undo_watchlist(request: Request):
 def spend():
     import cost_ledger
     targets = _read_json(TARGETS) if TARGETS.exists() else {}
-    return cost_ledger.weekly_spend(DATA, datetime.now().date(), targets)
+    return _weekly_spend_after_reconciliation(cost_ledger, targets, datetime.now(timezone.utc).date())
+
+
+def _weekly_spend_after_reconciliation(cost_ledger, targets: dict, today) -> dict:
+    """Keep dashboard totals and run previews aligned with the runner's budget gate."""
+    try:
+        spend = cost_ledger.weekly_spend(DATA, today, targets)
+    except Exception as exc:
+        print(f"Weekly spend reconciliation failed: {exc}", flush=True)
+        raise HTTPException(503, "Could not reconcile recent model response costs; paid spending totals are unavailable.") from exc
+    if not isinstance(spend, dict):
+        print("Weekly spend reconciliation failed: invalid result", flush=True)
+        raise HTTPException(503, "Could not reconcile recent model response costs; paid spending totals are unavailable.")
+    failures = spend.get("reconciliation_failures") or []
+    if failures:
+        failure_list = failures if isinstance(failures, (list, tuple)) else [failures]
+        print("Weekly spend reconciliation failed: " + "; ".join(map(str, failure_list)), flush=True)
+        raise HTTPException(503, "Could not reconcile recent model response costs; paid spending totals are unavailable.")
+    return spend
 
 
 @app.get("/api/tiger/accounts")
@@ -1566,11 +1760,20 @@ def _history_row(run: dict) -> dict:
     }
     if run.get("report_json") is not None:
         try:
-            bundle = _decision_bundle(_read_json(run["report_json"]))
+            payload = _read_json(run["report_json"])
+            bundle = _decision_bundle(payload)
             row.update({key: bundle[key] for key in (
                 "fees_usd", "accounts_after", "trade_policy", "execution_assumption", "validated")})
+            review = _fund_review_outcome(payload, run["kind"])
+            row["review_outcome"] = review["review_outcome"]
+            if review["incomplete_stage"]:
+                row["incomplete_stage"] = review["incomplete_stage"]
+            if review["incomplete_error"]:
+                row["incomplete_error"] = review["incomplete_error"]
         except Exception:
             pass
+    elif run["kind"] == "snapshot":
+        row["review_outcome"] = "snapshot"
     return row
 
 
@@ -1583,6 +1786,7 @@ def _fund_payload(run: Optional[dict]) -> dict:
                 "history": history}
     view = _load_run_view(run)
     bundle = _decision_bundle(view.get("json"))
+    review = _fund_review_outcome(view.get("json"), run["kind"])
     return {
         "date": view.get("date"),
         "path": view.get("path"),
@@ -1600,6 +1804,7 @@ def _fund_payload(run: Optional[dict]) -> dict:
         "trade_policy": bundle["trade_policy"],
         "execution_assumption": bundle["execution_assumption"],
         "validated": bundle["validated"],
+        **review,
         "history": history,
     }
 
@@ -1980,7 +2185,7 @@ def _build_scout_manifest(body: ScoutRequest) -> dict:
                 if body.include_llm else 0.0)
     import cost_ledger
     cost_policy = cost_ledger.budget_policy(targets)
-    weekly_spend = cost_ledger.weekly_spend(DATA, datetime.now(timezone.utc).date(), targets)
+    weekly_spend = _weekly_spend_after_reconciliation(cost_ledger, targets, datetime.now(timezone.utc).date())
     manifest = {
         "mode": body.mode,
         "sectors": sectors,
@@ -2139,7 +2344,7 @@ def _build_run_manifest(body: RunRequest) -> dict:
     include_rev = mode in {"REV", "ANL+REV"}
     cost_estimate = (expected_paid * cost_policy["native_run_estimate_usd"]
                      + (cost_policy["fund_manager_estimate_usd"] if include_rev else 0))
-    spend = cost_ledger.weekly_spend(DATA, datetime.now(timezone.utc).date(), targets)
+    spend = _weekly_spend_after_reconciliation(cost_ledger, targets, datetime.now(timezone.utc).date())
     report_sources = {}
     report_date_anchor = body.analysis_date or datetime.now(timezone.utc).date().isoformat()
     for ticker in portfolio_tickers:

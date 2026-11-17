@@ -145,10 +145,10 @@
           </div>
         </section>
         <section class="ar-card ar-card--flush">
-          <div class="ar-card__header"><h2 class="ar-card__title">Holdings and candidates</h2></div>
+          <div class="ar-card__header"><h2 class="ar-card__title">Holdings and candidates</h2><button class="ar-btn" id="wlRefreshSelected" type="button" disabled>Analyze selected + review</button></div>
           <div class="ar-table-wrap">
             <table class="ar-table" id="wlTable">
-              <thead><tr><th>Ticker</th><th>Origin</th><th>Sector</th><th>Instrument</th><th>Analysis sleeve</th><th class="ar-num"><span class="ar-sr-only">Remove candidate</span></th></tr></thead>
+              <thead><tr><th>Ticker</th><th>Origin</th><th>Sector</th><th>Instrument</th><th>Analysis sleeve</th><th>Latest earnings</th><th>Next earnings</th><th>Ticker report</th><th>Refresh</th><th class="ar-num"><span class="ar-sr-only">Remove candidate</span></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -172,7 +172,7 @@
             <div class="ar-card__body"><div class="ar-list" id="repList" role="listbox" aria-label="Reports"></div></div>
           </section>
           <section class="ar-card ar-span-8">
-            <div class="ar-card__header"><h2 class="ar-card__title" id="repTitle">Select a report</h2></div>
+            <div class="ar-card__header"><h2 class="ar-card__title" id="repTitle">Select a report</h2><button class="ar-btn" id="repExportPdf" type="button" disabled>Export report as PDF</button></div>
             <div class="ar-card__body ar-stack">
               <div id="repMeta" class="ar-subtle"></div>
               <div class="ar-md" id="repMd"><p class="ar-muted">Pick a report on the left.</p></div>
@@ -193,7 +193,7 @@
           </div>
         </div>
         <section class="ar-card ar-card--flush">
-          <div class="ar-card__header"><h2 class="ar-card__title">Trades</h2></div>
+          <div class="ar-card__header"><h2 class="ar-card__title">Trades</h2><button class="ar-btn" id="fmExportPdf" type="button" disabled>Export report as PDF</button></div>
           <div class="ar-table-wrap">
             <table class="ar-table" id="fmTrades">
               <thead>
@@ -216,6 +216,13 @@
             <div class="ar-card__body"><div class="ar-list" id="fmHistory"></div></div>
           </section>
         </div>
+        <section class="ar-card hidden" id="fmUnvalidatedCard" aria-labelledby="fmUnvalidatedTitle">
+          <div class="ar-card__header"><h2 class="ar-card__title" id="fmUnvalidatedTitle">Unvalidated model output</h2></div>
+          <div class="ar-card__body ar-stack">
+            <p class="ar-warning" id="fmIncompleteNotice" role="alert"></p>
+            <div id="fmUnvalidatedOutput"></div>
+          </div>
+        </section>
         <section class="ar-card">
           <div class="ar-card__header"><h2 class="ar-card__title">Full report</h2></div>
           <div class="ar-card__body"><div class="ar-md" id="fmMd"></div></div>
@@ -295,7 +302,7 @@
           </section>
         </div>
         <section class="ar-card">
-          <div class="ar-card__header"><h2 class="ar-card__title">Report</h2></div>
+          <div class="ar-card__header"><h2 class="ar-card__title">Report</h2><button class="ar-btn" id="themeExportPdf" type="button" disabled>Export report as PDF</button></div>
           <div class="ar-card__body"><div class="ar-md" id="themeMd"><p class="ar-muted">No theme-scout report yet.</p></div></div>
         </section>
       </section>
@@ -349,7 +356,7 @@
                 </div>
               </div>
               <h3 class="ar-h3">Tickers</h3>
-              <p class="ar-subtle">Empty means all book positions when agents run.</p>
+              <p class="ar-subtle" id="runSelectionSummary">0 selected. Empty means all applicable positions when agents run.</p>
               <div class="ar-row">
                 <button class="ar-btn" id="selBook" type="button">
                   <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#wallet"/></svg>
@@ -359,6 +366,7 @@
                   <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#eye"/></svg>
                   <span class="ar-btn__label">Select watchlist</span>
                 </button>
+                <button class="ar-btn" id="selAll" type="button">Select all book + watchlist</button>
                 <button class="ar-btn" id="selNone" type="button">
                   <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#x"/></svg>
                   <span class="ar-btn__label">Clear</span>
@@ -607,6 +615,6 @@
   <script src="/static/formatters.js"></script>
   <script src="/static/portfolio-holdings-render.js"></script>
   <script src="/static/fund-trade-render.js"></script>
-  <script src="/static/app.js?v=portfolio-accounts-ui-1"></script>
+  <script src="/static/app.js?v=fund-review-outcome-1"></script>
 </body>
 </html>

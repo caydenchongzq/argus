@@ -12,8 +12,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 
@@ -37,6 +38,54 @@ def main() -> int:
         sys.path.insert(0, str(HERE))
         from fastapi.testclient import TestClient
         import server
+
+        # New and legacy failed fund-manager reviews stay visibly incomplete;
+        # raw prose is exposed separately from validated trade rows.
+        legacy_fallback = server._fund_review_outcome({
+            "draft": None, "final": None, "llm_calls": [{"label": "fm/draft"}],
+            "raw_text_fallbacks": ["# Draft\n\nRaw text only"],
+        }, "report")
+        assert legacy_fallback["review_outcome"] == "incomplete"
+        assert legacy_fallback["unvalidated_outputs"][0]["content"].startswith("# Draft")
+        assert server._decision_bundle({"draft": None, "final": None, "raw_text_fallbacks": ["Buy it"]})["trades"] == []
+        assert server._fund_review_outcome({"draft": None, "final": None}, "snapshot")["review_outcome"] == "snapshot"
+        assert server._fund_review_outcome({"review_outcome": "complete", "final": {"headline": "done"}}, "report")["review_outcome"] == "complete"
+        class ReconcileLedgerFixture:
+            def __init__(self, failures=None, raised=None):
+                self.calls = []
+                self.failures = failures or []
+                self.raised = raised
+
+            def weekly_spend(self, data_root, today, targets):
+                self.calls.append("spend")
+                assert data_root == server.DATA
+                if self.raised:
+                    raise OSError(self.raised)
+                return {"spent_usd": 4.5, "reconciliation_failures": self.failures}
+
+        ledger_fixture = ReconcileLedgerFixture()
+        assert server._weekly_spend_after_reconciliation(ledger_fixture, {}, datetime.now(timezone.utc).date()) == {"spent_usd": 4.5, "reconciliation_failures": []}
+        assert ledger_fixture.calls == ["spend"], "dashboard must use the spend result from the same reconciliation pass"
+        try:
+            server._weekly_spend_after_reconciliation(ReconcileLedgerFixture(["disk full"]), {}, datetime.now(timezone.utc).date())
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 503, exc
+        else:
+            raise AssertionError("spend preview must fail closed when its reconciliation reports errors")
+        try:
+            server._weekly_spend_after_reconciliation(ReconcileLedgerFixture(raised="second pass failed"), {}, datetime.now(timezone.utc).date())
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 503, exc
+        else:
+            raise AssertionError("spend preview must fail closed when reconciliation raises during spend calculation")
+        history_json = data / "fund_manager" / "2026-01-01" / "120000_fixture" / "portfolio_report.json"
+        history_json.parent.mkdir(parents=True)
+        history_json.write_text(json.dumps({"draft": None, "final": None, "llm_calls": [{"label": "draft"}],
+                                            "raw_text_fallbacks": ["A very long raw model response"]}), encoding="utf-8")
+        history_row = server._history_row({"date": "2026-01-01", "rel": "2026-01-01/120000_fixture",
+                                           "kind": "report", "report_json": history_json, "stats_path": None})
+        assert history_row["review_outcome"] == "incomplete"
+        assert "unvalidated_outputs" not in history_row, "history rows must not copy raw model responses"
 
         c = TestClient(server.app, base_url="http://127.0.0.1")
         assert server._has_legacy_account()
@@ -223,6 +272,82 @@ def main() -> int:
         assert by_ticker["AAA"]["origins"] == ["held", "candidate"]
         assert by_ticker["BRK-B"]["instrument_type"] == "Stock"
         assert by_ticker["CCC"]["origins"] == ["candidate"]
+        earnings_stats = {"positions": [], "watchlist": [
+            {"ticker": "CCC", "earnings": {"last": "2026-11-12", "last_datetime": "2026-11-12T16:30:00-05:00",
+                                               "date": "2026-12-01", "next_datetime": "2026-12-01T16:30:00-05:00",
+                                               "reported_eps": 1.4, "estimated_eps": 1.5, "surprise_percent": 12.0}},
+        ]}
+        with patch.object(server, "_latest_stats", return_value=earnings_stats), \
+             patch.object(server, "_list_reports", return_value=[
+                 {"ticker": "CCC", "generated_at": "2026-11-12T20:00:00Z"},
+             ]):
+            enriched = {row["ticker"]: row for row in server.get_watchlist()["items"]}["CCC"]
+        assert enriched["earnings_last_datetime"] == "2026-11-12T21:30:00Z", enriched
+        assert enriched["earnings_next_datetime"] == "2026-12-01T21:30:00Z", enriched
+        assert enriched["earnings_data"]["reported_eps"] == 1.4
+        assert enriched["earnings_data"]["last"]["reported_eps"] == 1.4
+        assert enriched["earnings_data"]["next"]["estimated_eps"] == 1.5
+        assert enriched["earnings_stale"] is True and enriched["earnings_status"] == "stale", enriched
+        with patch.object(server, "_latest_stats", return_value=earnings_stats), \
+             patch.object(server, "_list_reports", return_value=[
+                 {"ticker": "CCC", "generated_at": "2026-11-12T22:00:00Z"},
+             ]):
+            refreshed = {row["ticker"]: row for row in server.get_watchlist()["items"]}["CCC"]
+        assert refreshed["earnings_stale"] is False and refreshed["earnings_status"] == "updated", refreshed
+        with patch.object(server, "_latest_stats", return_value=earnings_stats), \
+             patch.object(server, "_list_reports", return_value=[]):
+            missing_report = {row["ticker"]: row for row in server.get_watchlist()["items"]}["CCC"]
+        assert missing_report["earnings_status"] == "stale" and missing_report["earnings_stale"] is True
+        date_only_past = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+        date_only_stats = {"positions": [], "watchlist": [{"ticker": "CCC", "earnings": {
+            "last": (datetime.now(timezone.utc).date() - timedelta(days=90)).isoformat(),
+            "last_datetime": (datetime.now(timezone.utc) - timedelta(days=90)).isoformat().replace("+00:00", "Z"),
+            "date": date_only_past, "next_datetime": None,
+            "next_event": {"date": date_only_past, "datetime": None,
+                           "reported_eps": 1.8, "estimated_eps": 1.5, "surprise_percent": 20.0},
+        }}]}
+        with patch.object(server, "_latest_stats", return_value=date_only_stats), \
+             patch.object(server, "_list_reports", return_value=[{"ticker": "CCC", "generated_at": datetime.now(timezone.utc).isoformat()}]):
+            date_only = {row["ticker"]: row for row in server.get_watchlist()["items"]}["CCC"]
+        assert date_only["earnings_data"]["last_date"] == date_only_past
+        assert date_only["earnings_data"]["last"]["reported_eps"] == 1.8
+        assert date_only["earnings_last_datetime"] is None
+        assert date_only["earnings_status"] == "unknown" and date_only["earnings_stale"] is None
+        just_passed = datetime.now(timezone.utc).replace(microsecond=0)
+        old_event = (just_passed - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+        passed_event = (just_passed - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
+        prior_report = (just_passed - timedelta(minutes=2)).isoformat().replace("+00:00", "Z")
+        cached_stats = {"positions": [], "watchlist": [{"ticker": "CCC", "earnings": {
+            "last": old_event[:10], "last_datetime": old_event, "date": passed_event[:10],
+            "next_datetime": passed_event, "as_of": old_event[:10],
+            "next_event": {"date": passed_event[:10], "datetime": passed_event,
+                           "reported_eps": 1.8, "estimated_eps": 1.5, "surprise_percent": 20.0}}}]}
+        with patch.object(server, "_latest_stats", return_value=cached_stats), \
+             patch.object(server, "_list_reports", return_value=[{"ticker": "CCC", "generated_at": prior_report}]):
+            rolled = {row["ticker"]: row for row in server.get_watchlist()["items"]}["CCC"]
+        assert rolled["earnings_last_datetime"] == passed_event
+        assert rolled["earnings_data"]["next_date"] is None
+        assert rolled["earnings_data"]["last"]["reported_eps"] == 1.8
+        assert rolled["earnings_data"]["last"]["surprise_percent"] == 20.0
+        assert rolled["earnings_data"]["last"]["estimated_eps"] == 1.5
+        assert rolled["earnings_data"]["estimated_eps"] is None
+        assert rolled["earnings_stale"] is True, rolled
+        with patch.object(server, "_latest_stats", return_value={"positions": [], "watchlist": [
+                 {"ticker": "CCC", "earnings": {"error": "calendar unavailable"}},
+             ]}), \
+             patch.object(server, "_list_reports", return_value=[
+                 {"ticker": "CCC", "generated_at": "2026-11-12T21:00:00Z"},
+             ]):
+            unavailable = {row["ticker"]: row for row in server.get_watchlist()["items"]}["CCC"]
+        assert unavailable["report_generation_unknown"] is False
+        assert unavailable["earnings_status"] == "unknown" and unavailable["earnings_stale"] is None
+        with patch.object(server, "_latest_stats", return_value=earnings_stats), \
+             patch.object(server, "_list_reports", return_value=[
+                 {"ticker": "CCC", "generated_at": "2026-11-12 21:00:00"},
+             ]):
+            legacy = {row["ticker"]: row for row in server.get_watchlist()["items"]}["CCC"]
+        assert legacy["report_generation_unknown"] is True
+        assert legacy["report_generated_at"] is None and legacy["earnings_status"] == "unknown"
         # Selling a holding removes only the held origin; the saved candidate survives.
         book = json.loads((data / "my_book.json").read_text(encoding="utf-8"))
         book["positions"] = [row for row in book["positions"] if row["ticker"] != "AAA"]
