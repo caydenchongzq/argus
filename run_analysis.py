@@ -17,7 +17,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 import importlib
 
-from run_inputs import fingerprint as _fingerprint_run_inputs
+from run_inputs import fingerprint as _fingerprint_run_inputs, research_profile_paths
 
 ROOT = Path(__file__).resolve().parent
 
@@ -230,17 +230,25 @@ def _main(argv: list[str] | None = None) -> int:
                 sys.path.insert(0, addon_path)
             try:
                 agent_config = importlib.import_module("agent_config")
-                input_hash = _fingerprint_run_inputs(root, ta, {
+                expected_tickers = json.loads(args.manifest_analysis_tickers_json or "[]")
+                if not isinstance(expected_tickers, list) or any(not isinstance(t, str) for t in expected_tickers):
+                    raise ValueError("expected ticker scope must be a JSON list of strings")
+                config_paths = {
                     "agent_config": Path(agent_config.config_path()),
                     "model_rates": Path(agent_config.models_path()),
-                })["sha256"]
+                    "argus_runner": ROOT / "run_analysis.py",
+                    "argus_run_inputs": ROOT / "run_inputs.py",
+                }
+                input_hash = _fingerprint_run_inputs(
+                    root, ta, config_paths, include_research_profile=bool(expected_tickers))
+                input_hash = input_hash["sha256"]
             except Exception as exc:
                 print(f"RUN_MANIFEST_INVALID=agent configuration unavailable: {exc}", flush=True)
                 return 78
             if input_hash != args.manifest_input_fingerprint:
-                print("RUN_MANIFEST_INVALID=portfolio inputs or model configuration changed after review", flush=True)
+                print("RUN_MANIFEST_INVALID=reviewed inputs, profile or model configuration changed after review", flush=True)
                 _set_run_state("failed", exit_code=78,
-                               error="portfolio inputs or model configuration changed after review")
+                               error="reviewed inputs, profile or model configuration changed after review")
                 return 78
             if not args.scout_mode and not args.manifest_analysis_tickers_json:
                 print("RUN_MANIFEST_INVALID=expected ticker scope is missing", flush=True)
@@ -384,14 +392,20 @@ def _main(argv: list[str] | None = None) -> int:
                 return code
 
         if run_native_agents:
+            research_memory = root / "research_only_memory.md"
             for ticker in agent_tickers:
                 code = _budget(python, addons, root, budget_day, "native", ta, env)
                 if code:
                     return code
-                native = _script_command(python, ta, fm / "run_native.py", "--ticker", ticker,
+                native = _script_command(python, ta, fm / "run_native.py", "--research-only", "--ticker", ticker,
                                          "--date", day, "--analysts", "market,sentiment,news,fundamentals",
-                                         "--portfolio", str(book_path), "--save", "--no-show")
-                code, _ = _run(native, cwd=ta, env=env, label=f"native:{ticker}")
+                                         "--save", "--no-show", "--no-checkpoint")
+                native_env = dict(env)
+                native_env.update({
+                    "ARGUS_RESEARCH_ONLY": "1",
+                    "TRADINGAGENTS_MEMORY_LOG_PATH": str(research_memory),
+                })
+                code, _ = _run(native, cwd=ta, env=native_env, label=f"native:{ticker}")
                 if code:
                     native_failed.append(ticker)
 

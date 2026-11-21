@@ -47,7 +47,7 @@ ADDONS = TA_ROOT / "addons"
 if str(ADDONS) not in sys.path:
     sys.path.insert(0, str(ADDONS))
 import agent_config  # noqa: E402
-from run_inputs import fingerprint as _fingerprint_run_inputs  # noqa: E402
+from run_inputs import fingerprint as _fingerprint_run_inputs, research_profile_paths  # noqa: E402
 REPORTS_DIR = DATA / "logs" / "reports"
 FUND_DIR = DATA / "fund_manager"
 RUNNER = ROOT / "run_analysis.py"
@@ -287,7 +287,15 @@ def _decision_bundle(js: Optional[dict]) -> dict:
         trades = check.get("trades") or []
     else:
         trades = (decision or {}).get("trades") or []
+    contract_source = js if isinstance(js, dict) else {}
+    decision_source = decision if isinstance(decision, dict) else {}
     return {
+        # These fields are producer-owned contract metadata. Legacy reports do
+        # not imply a profile, coverage claim, or position-state assessment.
+        "decision_contract_version": contract_source.get("decision_contract_version", decision_source.get("decision_contract_version")),
+        "decision_context": contract_source.get("decision_context", decision_source.get("decision_context")),
+        "candidate_coverage": contract_source.get("candidate_coverage", decision_source.get("candidate_coverage")) or [],
+        "position_results": contract_source.get("position_results", decision_source.get("position_results")) or [],
         "decision": decision,
         "trades": trades,
         "warnings": (check or {}).get("warnings") or [],
@@ -1781,6 +1789,8 @@ def _fund_payload(run: Optional[dict]) -> dict:
     history = [_history_row(r) for r in _fm_runs()]
     if run is None:
         return {"date": None, "path": None, "markdown": None, "decision": None, "trades": [],
+                "decision_contract_version": None, "decision_context": None,
+                "candidate_coverage": [], "position_results": [],
                 "warnings": [], "validated": None, "fees_usd": None,
                 "accounts_after": None, "trade_policy": None, "execution_assumption": None,
                 "history": history}
@@ -1792,6 +1802,10 @@ def _fund_payload(run: Optional[dict]) -> dict:
         "path": view.get("path"),
         "kind": view.get("kind"),
         "markdown": view.get("markdown"),
+        "decision_contract_version": bundle["decision_contract_version"],
+        "decision_context": bundle["decision_context"],
+        "candidate_coverage": bundle["candidate_coverage"],
+        "position_results": bundle["position_results"],
         "decision": bundle["decision"],
         "trades": bundle["trades"],
         "warnings": bundle["warnings"],
@@ -2240,11 +2254,15 @@ def _build_scout_manifest(body: ScoutRequest) -> dict:
     return {"manifest": manifest, "manifest_sha256": digest}
 
 
-def _execution_input_fingerprint() -> dict:
-    return _fingerprint_run_inputs(DATA, TA_ROOT, {
+def _execution_input_fingerprint(*, include_research_profile: bool = False) -> dict:
+    config_paths = {
         "agent_config": Path(agent_config.config_path()),
         "model_rates": Path(agent_config.models_path()),
-    })
+        "argus_runner": RUNNER,
+        "argus_run_inputs": ROOT / "run_inputs.py",
+    }
+    return _fingerprint_run_inputs(DATA, TA_ROOT, config_paths,
+                                   include_research_profile=include_research_profile)
 
 
 @app.post("/api/theme-scout/manifest")
@@ -2375,9 +2393,13 @@ def _build_run_manifest(body: RunRequest) -> dict:
                                   "report_dir": folder.name}
     price_models = [{key: row.get(key) for key in ("id", "label", "usd_per_mtok_in", "usd_per_mtok_out")}
                     for row in seat_payload.get("models") or []]
-    input_fingerprint = _execution_input_fingerprint()
+    input_fingerprint = _execution_input_fingerprint(include_research_profile=bool(analysis_tickers))
+    research_sources = research_profile_paths(TA_ROOT) if analysis_tickers else {}
     manifest = {
         "mode": mode,
+        "stock_analysis_profile": "research_only_v1" if analysis_tickers else None,
+        "stock_analysis_prompt_policy": "native profile prompts; custom stock seat text suppressed; seat settings retained"
+        if analysis_tickers else None,
         "trade_policy": effective_trade_policy,
         "request": {key: value for key, value in body.model_dump().items()
                     if key not in {"confirm", "manifest_sha256"}},
@@ -2390,6 +2412,13 @@ def _build_run_manifest(body: RunRequest) -> dict:
         "portfolio_context": {"holdings": holdings, "cash": book.get("cash"),
                               "saved_candidates": candidates} if include_rev or mode == "snapshot" else None,
         "input_fingerprint": input_fingerprint,
+        "stock_analysis_profile_fingerprint": {
+            "files": {key: input_fingerprint["files"].get(key) for key in research_sources},
+            "sha256": hashlib.sha256(json.dumps(
+                {key: input_fingerprint["files"].get(key) for key in research_sources},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+            if research_sources else None,
+        } if analysis_tickers else None,
         "cost_estimate": {
             "amount_usd": round(cost_estimate, 4),
             "kind": "configured_budget_planning_placeholder",

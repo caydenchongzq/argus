@@ -8,3 +8,4 @@
 {"event":"release","at":"2026-11-14T12:10:56.025Z","holder":"codex-research-plan","provider":"openai","model":"gpt-6","effort":"high","session":"argus-research-20261114"}
 {"event":"claim","at":"2026-11-14T13:59:34.596Z","holder":"codex-research-plan","acquired":true,"provider":"openai","model":"gpt-6","session":"argus-research-20261114","effort":"high"}
 {"event":"release","at":"2026-11-14T13:59:49.739Z","holder":"codex-research-plan","provider":"openai","model":"gpt-6","effort":"high","session":"argus-research-20261114"}
+{"event":"cancel","at":"2026-11-21T05:34:48.123Z","from":"discovery","to":"cancelled"}

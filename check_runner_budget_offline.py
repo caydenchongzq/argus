@@ -82,6 +82,10 @@ def main() -> int:
             " print('BUDGET_OK')\n", encoding="utf-8")
         (fm / "run_native.py").write_text(
             "import os, pathlib, sys\n"
+            "assert '--research-only' in sys.argv and '--no-checkpoint' in sys.argv, sys.argv\n"
+            "assert '--portfolio' not in sys.argv, sys.argv\n"
+            "assert os.environ.get('ARGUS_RESEARCH_ONLY') == '1'\n"
+            "assert os.environ.get('TRADINGAGENTS_MEMORY_LOG_PATH', '').endswith('research_only_memory.md')\n"
             "p=pathlib.Path(os.environ['NATIVE_CALLS_FILE'])\n"
             "with p.open('a') as f: f.write(sys.argv[sys.argv.index('--ticker')+1]+'\\n')\n"
             "if os.environ.get('FAIL_NATIVE'): sys.exit(7)\n",
@@ -136,6 +140,15 @@ def main() -> int:
         assert "ANL_ONLY_COMPLETE=AAA" in anl_only, anl_only
         assert native_calls.read_text().splitlines()[-1] == "AAA"
         assert not (data / "fund-manager-called").exists(), "ANL-only must stop before REV"
+
+        # A fund-manager-only run reuses saved research without invoking any stock agent.
+        native_before = native_calls.read_text().splitlines()
+        manager_only = run("run_analysis.py", ta, data, {**os.environ, "BUDGET_CALLS_FILE": str(budget_calls),
+                               "NATIVE_CALLS_FILE": str(native_calls), "RECONCILIATION_CALLS_FILE": str(reconciliation_calls),
+                               "BUDGET_EVENTS_FILE": str(budget_events)}, "--analysis-date", "2001-01-02")
+        assert "STAGE=fund_manager" in manager_only, manager_only
+        assert native_calls.read_text().splitlines() == native_before, "fund-manager-only must not rerun stock agents"
+        (data / "fund-manager-called").unlink()
 
         # A ledger reconciliation failure blocks before budget checks or paid stages.
         budget_before = budget_calls.read_text().splitlines()

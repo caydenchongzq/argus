@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Argus · Runs design preview</title>
+<style>
+/* Existing Argus tokens are inserted here, unchanged, for a standalone preview. */
+/* Argus colour tokens v1.1 — generated from palette.json (src/build_palette.py). Colour only; type/spacing/components = design system phase 2.
+
+ * Usage: <html data-theme="dark"> (default) | data-theme="light" | omit to follow the OS. Add data-palette="cvd" for blue/orange gain-loss. */
+
+:root {
+  --argus-emerald-50: #ECFDF5;
+  --argus-emerald-100: #D1FAE5;
+  --argus-emerald-200: #A7F3D0;
+  --argus-emerald-300: #6EE7B7;
+  --argus-emerald-400: #34D399;
+  --argus-emerald-500: #10B981;
+  --argus-emerald-600: #059669;
+  --argus-emerald-700: #047857;
+  --argus-emerald-800: #065F46;
+  --argus-emerald-900: #064E3B;
+  --argus-emerald-950: #022C22;
+  --argus-slate-50: #F8FAFC;
+  --argus-slate-100: #F1F5F9;
+  --argus-slate-200: #E2E8F0;
+  --argus-slate-300: #CBD5E1;
+  --argus-slate-400: #94A3B8;
+  --argus-slate-500: #64748B;
+  --argus-slate-600: #475569;
+  --argus-slate-700: #334155;
+  --argus-slate-800: #1E293B;
+  --argus-slate-900: #0F172A;
+  --argus-slate-950: #0B0F17;
+  --argus-violet-50: #F5F3FF;
+  --argus-violet-100: #EDE9FE;
+  --argus-violet-200: #DDD6FE;
+  --argus-violet-300: #C4B5FD;
+  --argus-violet-400: #A78BFA;
+  --argus-violet-500: #8B5CF6;
+  --argus-violet-600: #7C3AED;
+  --argus-violet-700: #6D28D9;
+  --argus-violet-800: #5B21B6;
+  --argus-violet-900: #4C1D95;
+  --argus-lime-50: #F7FEE7;
+  --argus-lime-100: #ECFCCB;
+  --argus-lime-200: #D9F99D;
+  --argus-lime-300: #BEF264;
+  --argus-lime-400: #A3E635;
+  --argus-lime-500: #84CC16;
+  --argus-lime-600: #65A30D;
+  --argus-lime-700: #4D7C0F;
+  --argus-lime-800: #3F6212;
+  --argus-lime-900: #365314;
+  --argus-red-50: #FEF2F2;
+  --argus-red-100: #FEE2E2;
+  --argus-red-200: #FECACA;
+  --argus-red-300: #FCA5A5;
+  --argus-red-400: #F87171;
+  --argus-red-500: #EF4444;
+  --argus-red-600: #DC2626;
+  --argus-red-700: #B91C1C;
+  --argus-red-800: #991B1B;
+  --argus-red-900: #7F1D1D;
+  --argus-amber-50: #FFFBEB;
+  --argus-amber-100: #FEF3C7;
+  --argus-amber-200: #FDE68A;
+  --argus-amber-300: #FCD34D;
+  --argus-amber-400: #FBBF24;
+  --argus-amber-500: #F59E0B;
+  --argus-amber-600: #D97706;
+  --argus-amber-700: #B45309;
+  --argus-amber-800: #92400E;
+  --argus-amber-900: #78350F;
+  --argus-sky-50: #F0F9FF;
+  --argus-sky-100: #E0F2FE;
+  --argus-sky-200: #BAE6FD;
+  --argus-sky-300: #7DD3FC;
+  --argus-sky-400: #38BDF8;
+  --argus-sky-500: #0EA5E9;
+  --argus-sky-600: #0284C7;
+  --argus-sky-700: #0369A1;
+  --argus-sky-800: #075985;
+  --argus-sky-900: #0C4A6E;
+  --argus-blue-50: #EFF6FF;
+  --argus-blue-400: #60A5FA;
+  --argus-blue-600: #2563EB;
+  --argus-blue-700: #1D4ED8;
+  --argus-orange-50: #FFF7ED;
+  --argus-orange-400: #FB923C;
+  --argus-orange-700: #C2410C;
+  --argus-orange-800: #9A3412;
+}
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --argus-bg: #0B0F17;
+  --argus-surface: #121826;
+  --argus-surface-2: #1A2132;
+  --argus-surface-hover: #1E2638;
+  --argus-surface-active: #263043;
+  --argus-surface-selected: #0F2A22;
+  --argus-border: #263043;
+  --argus-border-strong: #334155;
+  --argus-border-hover: #475569;
+  --argus-text: #E2E8F0;
+  --argus-text-2: #94A3B8;
+  --argus-text-3: #7C8BA1;
+  --argus-text-disabled: #4B5568;
+  --argus-brand: #34D399;
+  --argus-brand-text: #34D399;
+  --argus-brand-subtle: #0F2A22;
+  --argus-focus-ring: #34D399;
+  --argus-accent: #A78BFA;
+  --argus-accent-subtle: #221A3A;
+  --argus-btn-primary-bg: #34D399;
+  --argus-btn-primary-hover: #6EE7B7;
+  --argus-btn-primary-active: #A7F3D0;
+  --argus-btn-primary-text: #052E1F;
+  --argus-btn-secondary-bg: #1A2132;
+  --argus-btn-secondary-hover: #1E2638;
+  --argus-btn-secondary-active: #263043;
+  --argus-btn-secondary-border: #334155;
+  --argus-btn-secondary-text: #E2E8F0;
+  --argus-btn-ghost-hover: #1E2638;
+  --argus-btn-ghost-active: #263043;
+  --argus-btn-ghost-text: #34D399;
+  --argus-btn-danger-bg: #F87171;
+  --argus-btn-danger-hover: #FCA5A5;
+  --argus-btn-danger-active: #FECACA;
+  --argus-btn-danger-text: #2A0A0A;
+  --argus-btn-disabled-bg: #1A2132;
+  --argus-btn-disabled-border: #263043;
+  --argus-input-bg: #0F1420;
+  --argus-input-border: #64748B;
+  --argus-input-border-hover: #94A3B8;
+  --argus-input-border-focus: #34D399;
+  --argus-input-disabled-bg: #151B29;
+  --argus-input-placeholder: #7C8BA1;
+  --argus-gain: #A3E635;
+  --argus-gain-subtle: #1C2A0E;
+  --argus-on-gain: #1A2E05;
+  --argus-loss: #F87171;
+  --argus-loss-subtle: #2A1316;
+  --argus-on-loss: #2A0A0A;
+  --argus-flat: #94A3B8;
+  --argus-flat-subtle: #1A2132;
+  --argus-warn: #FBBF24;
+  --argus-warn-subtle: #2A2110;
+  --argus-warn-border: #78350F;
+  --argus-info: #38BDF8;
+  --argus-info-subtle: #0E2233;
+  --argus-info-border: #075985;
+  --argus-danger: #F87171;
+  --argus-danger-subtle: #2A1316;
+  --argus-danger-border: #7F1D1D;
+  --argus-ok: #34D399;
+  --argus-ok-subtle: #0F2A22;
+  --argus-ok-border: #065F46;
+  --argus-chart-1: #38BDF8;
+  --argus-chart-2: #A78BFA;
+  --argus-chart-3: #FBBF24;
+  --argus-chart-4: #F472B6;
+  --argus-chart-5: #2DD4BF;
+  --argus-chart-6: #818CF8;
+  --argus-chart-7: #FACC15;
+  --argus-chart-8: #94A3B8;
+  --argus-chart-grid: #1E2638;
+  --argus-chart-axis: #7C8BA1;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --argus-bg: #F8FAFC;
+  --argus-surface: #FFFFFF;
+  --argus-surface-2: #F1F5F9;
+  --argus-surface-hover: #F1F5F9;
+  --argus-surface-active: #E2E8F0;
+  --argus-surface-selected: #ECFDF5;
+  --argus-border: #E2E8F0;
+  --argus-border-strong: #CBD5E1;
+  --argus-border-hover: #94A3B8;
+  --argus-text: #0F172A;
+  --argus-text-2: #475569;
+  --argus-text-3: #5B6B82;
+  --argus-text-disabled: #94A3B8;
+  --argus-brand: #059669;
+  --argus-brand-text: #047857;
+  --argus-brand-subtle: #ECFDF5;
+  --argus-focus-ring: #059669;
+  --argus-accent: #7C3AED;
+  --argus-accent-subtle: #F5F3FF;
+  --argus-btn-primary-bg: #047857;
+  --argus-btn-primary-hover: #065F46;
+  --argus-btn-primary-active: #064E3B;
+  --argus-btn-primary-text: #FFFFFF;
+  --argus-btn-secondary-bg: #FFFFFF;
+  --argus-btn-secondary-hover: #F1F5F9;
+  --argus-btn-secondary-active: #E2E8F0;
+  --argus-btn-secondary-border: #CBD5E1;
+  --argus-btn-secondary-text: #0F172A;
+  --argus-btn-ghost-hover: #F1F5F9;
+  --argus-btn-ghost-active: #E2E8F0;
+  --argus-btn-ghost-text: #047857;
+  --argus-btn-danger-bg: #DC2626;
+  --argus-btn-danger-hover: #B91C1C;
+  --argus-btn-danger-active: #991B1B;
+  --argus-btn-danger-text: #FFFFFF;
+  --argus-btn-disabled-bg: #F1F5F9;
+  --argus-btn-disabled-border: #E2E8F0;
+  --argus-input-bg: #FFFFFF;
+  --argus-input-border: #7C8BA1;
+  --argus-input-border-hover: #475569;
+  --argus-input-border-focus: #059669;
+  --argus-input-disabled-bg: #F1F5F9;
+  --argus-input-placeholder: #5B6B82;
+  --argus-gain: #4D7C0F;
+  --argus-gain-subtle: #F7FEE7;
+  --argus-on-gain: #FFFFFF;
+  --argus-loss: #C62828;
+  --argus-loss-subtle: #FEF2F2;
+  --argus-on-loss: #FFFFFF;
+  --argus-flat: #64748B;
+  --argus-flat-subtle: #F1F5F9;
+  --argus-warn: #B45309;
+  --argus-warn-subtle: #FFFBEB;
+  --argus-warn-border: #FCD34D;
+  --argus-info: #0369A1;
+  --argus-info-subtle: #F0F9FF;
+  --argus-info-border: #7DD3FC;
+  --argus-danger: #B91C1C;
+  --argus-danger-subtle: #FEF2F2;
+  --argus-danger-border: #FCA5A5;
+  --argus-ok: #047857;
+  --argus-ok-subtle: #ECFDF5;
+  --argus-ok-border: #6EE7B7;
+  --argus-chart-1: #0284C7;
+  --argus-chart-2: #7C3AED;
+  --argus-chart-3: #D97706;
+  --argus-chart-4: #DB2777;
+  --argus-chart-5: #0F766E;
+  --argus-chart-6: #4F46E5;
+  --argus-chart-7: #A16207;
+  --argus-chart-8: #475569;
+  --argus-chart-grid: #E2E8F0;
+  --argus-chart-axis: #64748B;
+}
+
+:root[data-palette="cvd"],
+[data-theme="dark"][data-palette="cvd"] {
+  --argus-gain: #60A5FA;
+  --argus-gain-subtle: #0F1D33;
+  --argus-on-gain: #0B1B33;
+  --argus-loss: #FB923C;
+  --argus-loss-subtle: #2B1A0E;
+  --argus-on-loss: #2B1205;
+}
+
+[data-theme="light"][data-palette="cvd"] {
+  --argus-gain: #2563EB;
+  --argus-gain-subtle: #EFF6FF;
+  --argus-on-gain: #FFFFFF;
+  --argus-loss: #C2410C;
+  --argus-loss-subtle: #FFF7ED;
+  --argus-on-loss: #FFFFFF;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --argus-bg: #F8FAFC;
+    --argus-surface: #FFFFFF;
+    --argus-surface-2: #F1F5F9;
+    --argus-surface-hover: #F1F5F9;
+    --argus-surface-active: #E2E8F0;
+    --argus-surface-selected: #ECFDF5;
+    --argus-border: #E2E8F0;
+    --argus-border-strong: #CBD5E1;
+    --argus-border-hover: #94A3B8;
+    --argus-text: #0F172A;
+    --argus-text-2: #475569;
+    --argus-text-3: #5B6B82;
+    --argus-text-disabled: #94A3B8;
+    --argus-brand: #059669;
+    --argus-brand-text: #047857;
+    --argus-brand-subtle: #ECFDF5;
+    --argus-focus-ring: #059669;
+    --argus-accent: #7C3AED;
+    --argus-accent-subtle: #F5F3FF;
+    --argus-btn-primary-bg: #047857;
+    --argus-btn-primary-hover: #065F46;
+    --argus-btn-primary-active: #064E3B;
+    --argus-btn-primary-text: #FFFFFF;
+    --argus-btn-secondary-bg: #FFFFFF;
+    --argus-btn-secondary-hover: #F1F5F9;
+    --argus-btn-secondary-active: #E2E8F0;
+    --argus-btn-secondary-border: #CBD5E1;
+    --argus-btn-secondary-text: #0F172A;
+    --argus-btn-ghost-hover: #F1F5F9;
+    --argus-btn-ghost-active: #E2E8F0;
+    --argus-btn-ghost-text: #047857;
+    --argus-btn-danger-bg: #DC2626;
+    --argus-btn-danger-hover: #B91C1C;
+    --argus-btn-danger-active: #991B1B;
+    --argus-btn-danger-text: #FFFFFF;
+    --argus-btn-disabled-bg: #F1F5F9;
+    --argus-btn-disabled-border: #E2E8F0;
+    --argus-input-bg: #FFFFFF;
+    --argus-input-border: #7C8BA1;
+    --argus-input-border-hover: #475569;
+    --argus-input-border-focus: #059669;
+    --argus-input-disabled-bg: #F1F5F9;
+    --argus-input-placeholder: #5B6B82;
+    --argus-gain: #4D7C0F;
+    --argus-gain-subtle: #F7FEE7;
+    --argus-on-gain: #FFFFFF;
+    --argus-loss: #C62828;
+    --argus-loss-subtle: #FEF2F2;
+    --argus-on-loss: #FFFFFF;
+    --argus-flat: #64748B;
+    --argus-flat-subtle: #F1F5F9;
+    --argus-warn: #B45309;
+    --argus-warn-subtle: #FFFBEB;
+    --argus-warn-border: #FCD34D;
+    --argus-info: #0369A1;
+    --argus-info-subtle: #F0F9FF;
+    --argus-info-border: #7DD3FC;
+    --argus-danger: #B91C1C;
+    --argus-danger-subtle: #FEF2F2;
+    --argus-danger-border: #FCA5A5;
+    --argus-ok: #047857;
+    --argus-ok-subtle: #ECFDF5;
+    --argus-ok-border: #6EE7B7;
+    --argus-chart-1: #0284C7;
+    --argus-chart-2: #7C3AED;
+    --argus-chart-3: #D97706;
+    --argus-chart-4: #DB2777;
+    --argus-chart-5: #0F766E;
+    --argus-chart-6: #4F46E5;
+    --argus-chart-7: #A16207;
+    --argus-chart-8: #475569;
+    --argus-chart-grid: #E2E8F0;
+    --argus-chart-axis: #64748B;
+  }
+  :root:not([data-theme])[data-palette="cvd"] {
+    --argus-gain: #2563EB;
+    --argus-gain-subtle: #EFF6FF;
+    --argus-on-gain: #FFFFFF;
+    --argus-loss: #C2410C;
+    --argus-loss-subtle: #FFF7ED;
+    --argus-on-loss: #FFFFFF;
+  }
+}
+
+/* Minimal helpers (colour only) */
+.argus-gain { color: var(--argus-gain); }
+.argus-loss { color: var(--argus-loss); }
+.argus-flat { color: var(--argus-flat); }
+:focus-visible { outline: 2px solid var(--argus-focus-ring); outline-offset: 2px; }
+/* ==========================================================================
+   Argus foundations v2 (design system phase 2) — type, space, radii,
+   borders, elevation, motion, z-index, layout, density.
+   Colour tokens above this block are unchanged from palette v1.1.
+   ========================================================================== */
+
+/* ---- Fonts: self-hosted, SIL OFL 1.1 (see fonts/*-OFL.txt). Latin subset, variable. ---- */
+@font-face { font-family: "Inter"; src: url("fonts/InterVariable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/InterVariable-Italic.woff2") format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMonoVariable.woff2") format("woff2"); font-weight: 100 800; font-style: normal; font-display: swap; }
+
+:root {
+  /* Families */
+  --argus-font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --argus-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --argus-font-numeric: var(--argus-font-sans); /* Inter + tabular-nums; mono only for code/logs/IDs */
+
+  /* Weights */
+  --argus-weight-regular: 400;
+  --argus-weight-medium: 500;
+  --argus-weight-semibold: 600;
+  --argus-weight-bold: 700;
+
+  /* Type scale: size / line-height (px, tuned for a dense desktop UI) */
+  --argus-text-display: 32px;  --argus-leading-display: 40px;
+  --argus-text-h1: 24px;       --argus-leading-h1: 32px;
+  --argus-text-h2: 20px;       --argus-leading-h2: 28px;
+  --argus-text-h3: 16px;       --argus-leading-h3: 24px;
+  --argus-text-h4: 12px;       --argus-leading-h4: 16px;   /* uppercase section label */
+  --argus-text-body-lg: 14px;  --argus-leading-body-lg: 22px;
+  --argus-text-body: 13px;     --argus-leading-body: 20px;
+  --argus-text-small: 12px;    --argus-leading-small: 16px;
+  --argus-text-caption: 11px;  --argus-leading-caption: 14px;
+  --argus-text-data: 13px;     --argus-leading-data: 20px;  /* table numbers */
+  --argus-text-data-lg: 24px;  --argus-leading-data-lg: 32px; /* stat tile value */
+  --argus-text-code: 12px;     --argus-leading-code: 18px;
+  --argus-tracking-tight: -0.011em; /* display, h1, data-lg */
+  --argus-tracking-caps: 0.06em;    /* h4, captions in caps */
+
+  /* Spacing: 4px base */
+  --argus-space-0: 0;
+  --argus-space-px: 1px;
+  --argus-space-0-5: 2px;
+  --argus-space-1: 4px;
+  --argus-space-1-5: 6px;
+  --argus-space-2: 8px;
+  --argus-space-3: 12px;
+  --argus-space-4: 16px;
+  --argus-space-5: 20px;
+  --argus-space-6: 24px;
+  --argus-space-8: 32px;
+  --argus-space-10: 40px;
+  --argus-space-12: 48px;
+  --argus-space-16: 64px;
+
+  /* Radii */
+  --argus-radius-xs: 3px;   /* checkbox, kbd */
+  --argus-radius-sm: 4px;   /* badges (status), small controls */
+  --argus-radius-md: 6px;   /* buttons, inputs, tabs */
+  --argus-radius-lg: 10px;  /* cards, alerts, tables */
+  --argus-radius-xl: 14px;  /* dialogs */
+  --argus-radius-full: 999px; /* pills, toggles, rating badges */
+
+  /* Borders */
+  --argus-border-width: 1px;
+  --argus-border-width-strong: 2px; /* selection indicators, focus */
+  --argus-focus-width: 2px;
+  --argus-focus-offset: 2px;
+
+  /* Motion */
+  --argus-dur-instant: 80ms;   /* hover colour */
+  --argus-dur-fast: 120ms;     /* press, toggle */
+  --argus-dur-base: 180ms;     /* tooltip, tab indicator, toast in */
+  --argus-dur-slow: 280ms;     /* dialog, drawer */
+  --argus-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --argus-ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --argus-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Z-index */
+  --argus-z-base: 0;
+  --argus-z-sticky: 10;    /* sticky table header */
+  --argus-z-header: 20;    /* app header */
+  --argus-z-dropdown: 30;
+  --argus-z-overlay: 40;   /* dialog backdrop */
+  --argus-z-modal: 50;
+  --argus-z-toast: 60;
+  --argus-z-tooltip: 70;
+
+  /* Breakpoints (reference only — CSS vars can't be used in @media):
+     sm 640px · md 960px · lg 1280px · xl 1600px. Design target: 1440–1920 desktop. */
+  --argus-bp-sm: 640px;
+  --argus-bp-md: 960px;
+  --argus-bp-lg: 1280px;
+  --argus-bp-xl: 1600px;
+
+  /* Layout */
+  --argus-header-h: 52px;
+  --argus-content-max: 1680px;
+  --argus-grid-cols: 12;
+
+  /* Density: comfortable (default) */
+  --argus-page-pad: 24px;
+  --argus-gap: 16px;          /* between cards */
+  --argus-card-pad: 16px;
+  --argus-control-h: 32px;    /* md buttons/inputs */
+  --argus-control-h-sm: 26px;
+  --argus-control-h-lg: 38px;
+  --argus-control-px: 12px;
+  --argus-row-h: 36px;        /* table rows */
+  --argus-cell-px: 12px;
+  --argus-icon-size: 16px;
+
+  /* Buttons: equal-feeling widths and icon sizing */
+  --argus-btn-minw-md: 96px;
+  --argus-btn-minw-lg: 120px;
+  --argus-btn-gap: 6px;       /* icon ↔ label, md */
+  --argus-btn-gap-lg: 8px;
+  --argus-btn-icon-sm: 14px;  /* sm buttons are icon-only squares */
+  --argus-btn-icon-md: 16px;
+  --argus-btn-icon-lg: 18px;
+}
+
+[data-density="compact"] {
+  --argus-page-pad: 16px;
+  --argus-gap: 12px;
+  --argus-card-pad: 12px;
+  --argus-control-h: 28px;
+  --argus-control-h-sm: 24px;
+  --argus-control-h-lg: 34px;
+  --argus-control-px: 10px;
+  --argus-row-h: 28px;
+  --argus-cell-px: 8px;
+  --argus-text-body: 12px;  --argus-leading-body: 18px;
+  --argus-text-data: 12px;  --argus-leading-data: 18px;
+  --argus-icon-size: 14px;
+  --argus-btn-minw-md: 88px;
+  --argus-btn-minw-lg: 112px;
+}
+
+/* Elevation: light uses soft shadows; dark relies on lighter surfaces + borders, shadows are deeper and subtle */
+:root, [data-theme="dark"] {
+  --argus-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --argus-shadow-md: 0 4px 12px rgb(0 0 0 / 0.40);
+  --argus-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.50);
+  --argus-shadow-overlay: 0 24px 64px rgb(0 0 0 / 0.60);
+  --argus-backdrop: rgb(3 6 12 / 0.66);
+  --argus-skeleton-a: #1A2132;
+  --argus-skeleton-b: #263043;
+  /* Log / terminal panel */
+  --argus-log-bg: #0B0F17;
+  --argus-log-border: #263043;
+  --argus-log-text: #E2E8F0;
+  --argus-log-ts: #7C8BA1;
+  --argus-log-lvl: #94A3B8;
+  --argus-log-info: #38BDF8;
+  --argus-log-warn: #FBBF24;
+  --argus-log-error: #F87171;
+  --argus-log-ok: #34D399;
+  --argus-log-hover: rgb(255 255 255 / 0.04);
+}
+[data-theme="light"] {
+  --argus-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+  --argus-shadow-md: 0 4px 12px rgb(15 23 42 / 0.08), 0 1px 3px rgb(15 23 42 / 0.06);
+  --argus-shadow-lg: 0 12px 32px rgb(15 23 42 / 0.12);
+  --argus-shadow-overlay: 0 24px 64px rgb(15 23 42 / 0.20);
+  --argus-backdrop: rgb(15 23 42 / 0.40);
+  --argus-skeleton-a: #F1F5F9;
+  --argus-skeleton-b: #E2E8F0;
+  /* Log / terminal panel */
+  --argus-log-bg: #F8FAFC;
+  --argus-log-border: #CBD5E1;
+  --argus-log-text: #0F172A;
+  --argus-log-ts: #5B6B82;
+  --argus-log-lvl: #475569;
+  --argus-log-info: #0369A1;
+  --argus-log-warn: #92400E;
+  --argus-log-error: #B91C1C;
+  --argus-log-ok: #047857;
+  --argus-log-hover: rgb(15 23 42 / 0.04);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --argus-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+    --argus-shadow-md: 0 4px 12px rgb(15 23 42 / 0.08), 0 1px 3px rgb(15 23 42 / 0.06);
+    --argus-shadow-lg: 0 12px 32px rgb(15 23 42 / 0.12);
+    --argus-shadow-overlay: 0 24px 64px rgb(15 23 42 / 0.20);
+    --argus-backdrop: rgb(15 23 42 / 0.40);
+    --argus-skeleton-a: #F1F5F9;
+    --argus-skeleton-b: #E2E8F0;
+    /* Log / terminal panel */
+    --argus-log-bg: #F8FAFC;
+    --argus-log-border: #CBD5E1;
+    --argus-log-text: #0F172A;
+    --argus-log-ts: #5B6B82;
+    --argus-log-lvl: #475569;
+    --argus-log-info: #0369A1;
+    --argus-log-warn: #92400E;
+    --argus-log-error: #B91C1C;
+    --argus-log-ok: #047857;
+    --argus-log-hover: rgb(15 23 42 / 0.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --argus-dur-instant: 0ms;
+    --argus-dur-fast: 0ms;
+    --argus-dur-base: 0ms;
+    --argus-dur-slow: 0ms;
+  }
+}
+
+*{box-sizing:border-box}body{margin:0;background:var(--argus-bg);color:var(--argus-text);font-family:var(--argus-font-sans);font-size:14px;line-height:1.55}button,input,select{font:inherit}button,label,summary{touch-action:manipulation}button,summary{cursor:pointer}button,select,input[type=date]{min-height:44px}button{border:1px solid var(--argus-border-strong);border-radius:var(--argus-radius-md);background:var(--argus-btn-secondary-bg);color:var(--argus-text);padding:10px 14px;font-weight:600}button:hover{background:var(--argus-surface-hover)}button:disabled{opacity:.5;cursor:wait}:focus-visible{outline:3px solid var(--argus-focus-ring);outline-offset:3px}h1,h2,h3,p{margin-top:0}h1{font-size:26px;line-height:1.3;margin-bottom:4px}h2{font-size:18px;line-height:1.4;margin-bottom:4px}h3{font-size:16px;margin-bottom:4px}p{margin-bottom:8px}.muted{color:var(--argus-text-2)}.small{font-size:13px}.mono{font-variant-numeric:tabular-nums}.hide,[hidden]{display:none!important}input[type=checkbox],input[type=radio]{accent-color:var(--argus-brand);width:17px;height:17px;flex:none;margin:3px 0}.primary{background:var(--argus-btn-primary-bg);color:var(--argus-btn-primary-text);border-color:var(--argus-btn-primary-bg)}.primary:hover{background:var(--argus-btn-primary-hover)}.top{border-bottom:1px solid var(--argus-border);background:var(--argus-surface);padding:14px max(20px,calc((100vw - 1240px)/2));display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{letter-spacing:.12em;font-weight:700}.preview-tag{font-size:12px;color:var(--argus-text-2);margin-left:16px}.tabs{display:flex;gap:24px;align-items:center}.tabs span{color:var(--argus-text-2);font-size:13px}.tabs .active{color:var(--argus-brand-text);font-weight:600}.shell{max-width:1240px;margin:0 auto;padding:26px 24px 48px}.pagehead{display:flex;justify-content:space-between;align-items:end;gap:16px;margin-bottom:22px}.card{background:var(--argus-surface);border:1px solid var(--argus-border);border-radius:var(--argus-radius-lg);overflow:hidden}.head{padding:18px 20px;border-bottom:1px solid var(--argus-border)}.body{padding:20px}.scenarios{padding:16px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.scenario{position:relative;display:flex;align-items:start;gap:10px;padding:14px;border:1px solid var(--argus-border-strong);border-radius:var(--argus-radius-md);cursor:pointer;min-width:0;min-height:132px;background:var(--argus-surface-2)}.scenario:hover{border-color:var(--argus-border-hover)}.scenario:has(input:checked){background:var(--argus-brand-subtle);border-color:var(--argus-brand)}.scenario:focus-within{outline:2px solid var(--argus-focus-ring);outline-offset:2px}.scenario strong{display:block;font-size:14px;margin-bottom:6px}.scenario p{font-size:12px;line-height:1.5;color:var(--argus-text-2);margin:0 0 8px}.scenario .kind{font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--argus-text)}fieldset{min-width:0;border:0;margin:0;padding:0}legend{font-size:14px;font-weight:600;margin-bottom:7px}.grid{display:grid;grid-template-columns:minmax(0,8fr) minmax(260px,4fr);gap:20px;margin-top:20px}.draft-note{padding:8px 20px;border-top:1px solid var(--argus-border);font-size:12px;color:var(--argus-text-2);min-height:36px}.purpose{padding:14px 16px;border-radius:var(--argus-radius-md);background:var(--argus-surface-2);margin-bottom:22px}.flow{font-size:12px;color:var(--argus-brand-text);margin:0}.group{margin-bottom:22px}.chips{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}.chip{border:1px solid var(--argus-border-strong);border-radius:var(--argus-radius-md);display:flex;gap:9px;align-items:center;padding:10px;min-height:48px;cursor:pointer}.chip:has(input:checked){border-color:var(--argus-brand);background:var(--argus-brand-subtle)}.chip strong{font-size:13px}.chip small{display:block;font-size:11px;color:var(--argus-text-2)}.actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.actions button{font-size:12px;padding:8px 10px}.section-label{font-size:12px;font-weight:600;color:var(--argus-text-2);margin:12px 0 2px}.coverage{border-left:3px solid var(--argus-brand);padding:10px 14px;background:var(--argus-brand-subtle);margin:16px 0 22px;font-size:13px}.coverage strong{display:block;margin-bottom:3px}.field{display:flex;flex-direction:column;gap:5px;max-width:360px;margin-top:12px}.field label{font-weight:600;font-size:13px}.field select,.field input{width:100%;background:var(--argus-input-bg);border:1px solid var(--argus-input-border);color:var(--argus-text);border-radius:var(--argus-radius-md);padding:9px 10px}.field small{color:var(--argus-text-2);font-size:12px}.sectors{grid-template-columns:repeat(2,minmax(0,1fr))}.sectors .chip{font-size:12px;align-items:start}.checkrow{display:flex;align-items:start;gap:10px;min-height:44px;padding:10px 0;cursor:pointer}.checkrow strong{display:block;font-size:13px}.checkrow small{display:block;font-size:12px;color:var(--argus-text-2);margin-top:3px}details{border-top:1px solid var(--argus-border);border-bottom:1px solid var(--argus-border);margin:22px 0}summary{padding:14px 0;font-weight:600;min-height:48px}details>div{padding:0 0 18px}.summary-box{background:var(--argus-surface-2);padding:16px;border-radius:var(--argus-radius-md);margin-top:20px}.summary-box h3{font-size:14px}.summary-box dl{display:grid;grid-template-columns:78px minmax(0,1fr);gap:6px 14px;font-size:12px;margin:10px 0 0}.summary-box dt{color:var(--argus-text-2)}.summary-box dd{margin:0;overflow-wrap:anywhere}.foot{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:18px}.foot p{font-size:12px;color:var(--argus-text-2);margin:0;max-width:320px}.error{color:var(--argus-danger);font-size:13px;margin:8px 0 0}.error-summary{border:1px solid var(--argus-danger-border);background:var(--argus-danger-subtle);padding:12px;border-radius:var(--argus-radius-md);margin-bottom:18px}.past{padding:14px;border-bottom:1px solid var(--argus-border)}.past strong{display:block;font-size:13px}.past span{font-size:12px;color:var(--argus-text-2)}.status{float:right;font-size:11px!important;color:var(--argus-ok)!important}.annotation{font-size:12px;color:var(--argus-text-2);padding:16px 20px}.past-card{align-self:start}dialog{max-width:620px;width:calc(100% - 32px);border:1px solid var(--argus-border-strong);border-radius:var(--argus-radius-lg);background:var(--argus-surface);color:var(--argus-text);padding:24px;max-height:90vh;overflow:auto}dialog::backdrop{background:color-mix(in srgb,var(--argus-bg) 80%,transparent)}dialog .actions{justify-content:end;margin-bottom:0}.demo-notice{color:var(--argus-warn);background:var(--argus-warn-subtle);padding:10px 12px;border-radius:var(--argus-radius-md);font-size:12px;margin-bottom:18px}.modal-summary{font-size:14px;line-height:1.7}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.badge{font-size:11px;border:1px solid var(--argus-border-strong);border-radius:4px;padding:3px 6px;white-space:nowrap;color:var(--argus-text-2)}
+@media(max-width:1000px){.scenarios{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:minmax(0,1fr)}.tabs{display:none}.past-card{margin-top:0}}@media(max-width:600px){body{font-size:16px}.shell{padding:20px 14px 36px}.top{padding:12px 14px}.preview-tag{display:block;margin:0;font-size:11px}.scenarios{grid-template-columns:minmax(0,1fr);padding:12px}.scenario{min-height:unset}.scenario strong{font-size:16px}.scenario p,.scenario .kind{font-size:13px}.head,.body{padding:16px}.chips{grid-template-columns:repeat(2,minmax(0,1fr))}.sectors{grid-template-columns:minmax(0,1fr)}.field select,.field input{font-size:16px}.foot{align-items:stretch;flex-direction:column}.foot button{width:100%}.pagehead{align-items:start}.pagehead>div>p{font-size:13px}.summary-box dl{grid-template-columns:66px minmax(0,1fr)}.modal-summary{font-size:16px}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="top"><div><span class="brand">ARGUS</span><span class="preview-tag">Runs design preview · illustrative data · no network</span></div><nav class="tabs" aria-label="Preview navigation"><span>Portfolio</span><span>Watchlist</span><span>Reports</span><span>Themes</span><span class="active" aria-current="page">Runs</span><span>Agents</span></nav><button id="theme" type="button">Light theme</button></header>
+<main class="shell">
+<div class="pagehead"><div><h1>Runs</h1><p class="muted">Choose what to update. Review the scope before anything starts.</p><p class="small muted">Weekly spending and live estimates appear here in the app.</p></div><span class="badge">Interactive preview</span></div>
+<section class="card" aria-labelledby="choose-title"><div class="head"><h2 id="choose-title">Choose a run</h2><p class="small muted">Choose a setup, adjust New run below, then click Start run.</p></div><fieldset><legend class="sr-only">Run type</legend><div class="scenarios" id="scenarios"></div></fieldset><div id="draft-status" class="draft-note" role="status" aria-live="polite">A free setup is selected. Nothing has started.</div></section>
+<div class="grid">
+<section class="card" aria-labelledby="new-title"><div class="head"><h2 id="new-title">New run</h2><p class="small muted">Your draft is kept when you change setups.</p></div><div class="body">
+<div class="error-summary" id="errors" tabindex="-1" role="alert" hidden></div>
+<div class="purpose"><h3 id="purpose"></h3><p class="small muted" id="purpose-copy"></p><p class="flow" id="flow"></p></div>
+<fieldset id="research-scope" class="group" hidden><legend>Ticker research scope <span class="muted" id="selected-count"></span></legend><p class="small muted" id="research-help">Only checked tickers get new research. Nothing selected means nothing will be researched.</p><div class="actions"><button type="button" data-bulk="held">Select all holdings</button><button type="button" data-bulk="candidate">Select all candidates</button><button type="button" data-bulk="all">Select all</button><button type="button" data-bulk="clear">Clear selection</button></div><p class="section-label">Holdings</p><div class="chips" id="held-chips"></div><p class="section-label">Watchlist candidates</p><div class="chips" id="candidate-chips"></div><p id="scope-error" class="error" hidden></p></fieldset>
+<div class="coverage" id="coverage"></div>
+<fieldset id="sector-scope" class="group" hidden><legend>Discovery sectors <span class="muted" id="sector-count"></span></legend><p class="small muted">Sectors guide discovery. Holdings and saved candidates remain in context; the screen may discover additional names.</p><div class="chips sectors" id="sector-chips"></div><p id="sector-error" class="error" hidden></p></fieldset>
+<div id="date-block" class="group"><div class="field"><label for="market-date">Market date</label><select id="market-date" aria-describedby="market-date-help"><option value="auto">Automatic</option><option value="custom">Choose a date</option></select><small id="market-date-help">Automatic lets the market preflight choose the session date.</small></div><div id="custom-date-wrap" class="field" hidden><label for="custom-date">Chosen market date</label><input id="custom-date" type="date" aria-describedby="custom-date-help date-error"><small id="custom-date-help">An advanced override. The app validates market-data availability before running.</small><p id="date-error" class="error" hidden></p></div></div>
+<p id="discovery-date" class="small muted" hidden><strong>Data date:</strong> Latest available market data. These discovery runs do not accept a date override.</p>
+<details id="advanced"><summary>More options</summary><div><label class="checkrow" id="macro-wrap"><input id="macro" type="checkbox" checked><span><strong>Include economic data</strong><small>Include the FRED economic snapshot in this review.</small></span></label><p class="small muted" id="risk-note">Risk analysis comes from the saved research brief and the portfolio review committee.</p><div class="field" id="since-wrap"><label for="since">Only reuse holding reports saved on or after</label><input id="since" type="date" aria-describedby="since-help"><small id="since-help">Optional UTC date. Holdings only, not watchlist candidates. Does not refresh reports; missing inputs will be shown.</small></div></div></details>
+<section class="summary-box" aria-labelledby="summary-title"><h3 id="summary-title">Run summary</h3><dl><dt>Refreshes</dt><dd id="sum-refresh"></dd><dt>Reuses</dt><dd id="sum-reuse"></dd><dt>Output</dt><dd id="sum-output"></dd><dt>AI cost</dt><dd id="sum-cost"></dd></dl></section>
+<div class="foot"><p id="start-help">Start run opens a review. Paid runs require your explicit consent.</p><button id="start" class="primary" type="button">Start run</button></div><p id="result" class="small muted" role="status" aria-live="polite"></p>
+</div></section>
+<aside class="card past-card" aria-labelledby="past-title"><div class="head"><h2 id="past-title">Past runs</h2><p class="small muted">Existing history and logs stay here.</p></div><div class="past"><span class="status">Completed</span><strong>Portfolio review</strong><span>Illustrative previous run</span></div><div class="past"><span class="status">Completed</span><strong>Selected ticker research</strong><span>Illustrative previous run</span></div><div class="past"><span class="status">Completed</span><strong>Market screen</strong><span>Illustrative previous run</span></div><p class="annotation">Try selecting tickers, switching to a screen, and returning. Your draft choices remain. A setup selection never opens a dialog.</p></aside>
+</div></main>
+<dialog id="review" aria-labelledby="review-title" aria-describedby="review-caption"><h2 id="review-title">Review run</h2><p id="review-caption" class="muted">This is a local design preview.</p><div class="demo-notice">No live manifest was requested. No job or paid call can start from this preview.</div><div class="modal-summary" id="review-summary"></div><details><summary>Model, pricing and source details</summary><p class="small muted">In the app, the current server manifest supplies configured model seats, dated report sources, stages, rate inventory, spending controls and estimate limitations. Estimates are not provider quotes or spending caps.</p></details><label class="checkrow" id="consent-wrap"><input id="consent" type="checkbox"><span><strong>I understand this uses paid AI credits.</strong><small>The app requires explicit consent before sending the reviewed request.</small></span></label><div class="actions"><button id="cancel" type="button">Back to draft</button><button id="confirm" class="primary" type="button">Simulate confirmation</button></div></dialog>
+<script>
+const $=(s)=>document.querySelector(s);
+const modes=[
+ {id:'snapshot',title:'Refresh prices & portfolio metrics',desc:'Update prices and calculated statistics from saved holdings. No AI review or broker import.',flow:'Saved holdings → fresh data → portfolio snapshot',output:'Quantitative portfolio snapshot',paid:false},
+ {id:'screen',title:'Screen the market',desc:'Refresh the market screen across selected discovery sectors. Your watchlist stays unchanged.',flow:'Selected sectors → refreshed market screen',output:'Screen and relative-strength data in Themes',paid:false},
+ {id:'scout',title:'Find watchlist ideas',desc:'Refresh the screen, then ask the scout for suggestions. Review and apply suggestions separately.',flow:'Selected sectors → screen → AI proposal',output:'Dated scout report and proposal in Themes',paid:true},
+ {id:'analyze',title:'Research selected tickers',desc:'Create fresh research reports for the names you choose. Skip the portfolio review.',flow:'Checked tickers → fresh research reports',output:'Research reports for selected tickers',paid:true},
+ {id:'analyze-review',title:'Research + portfolio review',desc:'Refresh selected ticker reports, then review the whole portfolio using fresh and saved research.',flow:'Checked tickers → research → whole-portfolio review',output:'Selected research reports and portfolio advisory review',paid:true},
+ {id:'fund',title:'Review portfolio',desc:'Review holdings and saved watchlist with existing ticker reports. No fresh ticker research.',flow:'Saved research + current book → portfolio review',output:'Advisory portfolio review',paid:true}
+];
+const holdings=[['NVDA','Holding'],['XLV','Holding'],['XLP','Holding']];
+const candidates=[['AMD','Candidate'],['MDT','Candidate'],['XOM','Candidate']];
+const sectors=[['XLK','Information Technology'],['XLY','Consumer Cyclical'],['XLV','Healthcare'],['XLP','Consumer Defensive'],['XLU','Utilities'],['XLE','Energy'],['XLF','Financial Services'],['SMH','Semiconductors']];
+const draft={mode:'snapshot',tickers:new Set(),sectors:new Set(sectors.map(x=>x[0])),dateMode:'auto',date:'',macro:true,since:''};let revision=0,busy=false;
+const research=()=>['analyze','analyze-review'].includes(draft.mode);
+const portfolio=()=>['fund','analyze-review'].includes(draft.mode);
+const discovery=()=>['screen','scout'].includes(draft.mode);
+$('#scenarios').innerHTML=modes.map(m=>`<label class="scenario"><input type="radio" name="mode" value="${m.id}" ${m.id===draft.mode?'checked':''}><span><strong>${m.title}</strong><p>${m.desc}</p><span class="kind">${m.paid?'Paid AI':'No AI calls'}</span></span></label>`).join('');
+function chips(rows){return rows.map(([id,kind])=>`<label class="chip"><input type="checkbox" data-ticker="${id}" aria-describedby="research-help scope-error"><span><strong>${id}</strong><small>${kind}</small></span></label>`).join('');}
+$('#held-chips').innerHTML=chips(holdings);$('#candidate-chips').innerHTML=chips(candidates);
+$('#sector-chips').innerHTML=sectors.map(([id,name])=>`<label class="chip"><input type="checkbox" data-sector="${id}" checked aria-describedby="sector-error"><span>${name} <span class="muted">(${id})</span></span></label>`).join('');
+function clearErrors(){['errors','scope-error','sector-error','date-error'].forEach(id=>$('#'+id).hidden=true);document.querySelectorAll('[aria-invalid]').forEach(el=>el.removeAttribute('aria-invalid'));}
+function changed(){revision++;clearErrors();$('#result').textContent='';render();}
+function render(){
+ const m=modes.find(x=>x.id===draft.mode),names=[...draft.tickers].join(', '),sectorNames=[...draft.sectors].join(', ');
+ $('#purpose').textContent=m.title;$('#purpose-copy').textContent=m.desc;$('#flow').textContent=m.flow;
+ $('#research-scope').hidden=!research();$('#sector-scope').hidden=!discovery();$('#date-block').hidden=discovery();$('#discovery-date').hidden=!discovery();
+ $('#custom-date-wrap').hidden=draft.dateMode!=='custom';$('#advanced').hidden=!(portfolio()||draft.mode==='snapshot');$('#risk-note').hidden=!portfolio();$('#since-wrap').hidden=!portfolio();
+ $('#selected-count').textContent=`· ${draft.tickers.size} selected`;$('#sector-count').textContent=`· ${draft.sectors.size} of 8 selected`;
+ document.querySelectorAll('[data-ticker]').forEach(x=>x.checked=draft.tickers.has(x.dataset.ticker));
+ $('#coverage').hidden=draft.mode==='analyze';
+ $('#coverage').innerHTML=portfolio()?'<strong>Portfolio review scope: all saved holdings and watchlist candidates</strong>Ticker selection limits new research only. The fund manager still reviews the whole portfolio using dated available research.':discovery()?'<strong>Discovery context</strong>Holdings, saved candidates and selected sector proxies stay in context. Additional names may be discovered by the screen.':'<strong>Uses your saved holdings</strong>Refreshes prices and metrics. Does not import broker positions or balances.';
+ $('#sum-refresh').textContent=research()?(draft.tickers.size?`${names} — new ticker research`:'No tickers selected yet'):discovery()?`${draft.sectors.size} discovery sectors: ${sectorNames||'none'}`:'Prices and calculated portfolio statistics';
+ $('#sum-reuse').textContent=draft.mode==='analyze'?'No portfolio review':portfolio()?'Saved research for the whole portfolio, with dates and evidence gaps':discovery()?'Saved holdings/watchlist context; not ticker research selections':'Saved holdings and watchlist context';
+ $('#sum-output').textContent=m.output;$('#sum-cost').textContent=m.paid?'Paid AI. Current model, scope and estimate reviewed after Start run.':'No AI calls.';
+ $('#start').textContent=busy?'Preparing review…':'Start run';$('#start').disabled=busy;
+}
+$('#scenarios').addEventListener('change',e=>{draft.mode=e.target.value;changed();$('#draft-status').textContent=`New run set to ${modes.find(x=>x.id===draft.mode).title}. Your selections are kept.`;});
+document.querySelectorAll('[data-ticker]').forEach(el=>el.addEventListener('change',()=>{el.checked?draft.tickers.add(el.dataset.ticker):draft.tickers.delete(el.dataset.ticker);changed();}));
+document.querySelectorAll('[data-sector]').forEach(el=>el.addEventListener('change',()=>{el.checked?draft.sectors.add(el.dataset.sector):draft.sectors.delete(el.dataset.sector);changed();}));
+document.querySelectorAll('[data-bulk]').forEach(el=>el.addEventListener('click',()=>{const k=el.dataset.bulk;if(k==='clear')draft.tickers.clear();else{const rows=k==='held'?holdings:k==='candidate'?candidates:[...holdings,...candidates];rows.forEach(x=>draft.tickers.add(x[0]));}changed();}));
+$('#market-date').addEventListener('change',e=>{draft.dateMode=e.target.value;changed();});$('#custom-date').addEventListener('input',e=>{draft.date=e.target.value;changed();});$('#macro').addEventListener('change',e=>{draft.macro=e.target.checked;changed();});$('#since').addEventListener('input',e=>{draft.since=e.target.value;changed();});
+function invalid(message,id,control){$('#'+id).textContent=message;$('#'+id).hidden=false;$('#errors').textContent=message;$('#errors').hidden=false;control.setAttribute('aria-invalid','true');control.focus();}
+$('#start').addEventListener('click',async()=>{
+ clearErrors();if(busy)return;
+ if(research()&&!draft.tickers.size){invalid('Choose at least one ticker to research.','scope-error',$('[data-ticker]'));return;}
+ if(discovery()&&!draft.sectors.size){invalid('Choose at least one discovery sector.','sector-error',$('[data-sector]'));return;}
+ if(!discovery()&&draft.dateMode==='custom'&&!draft.date){invalid('Choose a market date or use Automatic.','date-error',$('#custom-date'));return;}
+ const captured=revision;busy=true;render();await new Promise(resolve=>setTimeout(resolve,250));busy=false;render();
+ if(captured!==revision){$('#result').textContent='The draft changed. Click Start run to review the updated scope.';return;}
+ const m=modes.find(x=>x.id===draft.mode),scope=research()?[...draft.tickers].join(', '):discovery()?[...draft.sectors].join(', '):'All saved holdings and watchlist candidates';
+ $('#review-title').textContent=m.paid?'Review paid run':'Review free run';$('#review-summary').replaceChildren();
+ [['Run',m.title],['Scope',scope],['Portfolio review',portfolio()?'Whole portfolio, not limited by ticker selection':'Not included'],['Date',discovery()?'Latest available market data':draft.dateMode==='auto'?'Automatic':draft.date],['Output',m.output],['Cost',m.paid?'Production manifest provides the current estimate and spending controls.':'No AI calls.']].forEach(([label,value])=>{const p=document.createElement('p'),strong=document.createElement('strong');strong.textContent=label+': ';p.append(strong,document.createTextNode(value));$('#review-summary').append(p);});
+ $('#consent-wrap').hidden=!m.paid;$('#consent').checked=false;$('#confirm').disabled=m.paid;$('#review').showModal();$('#cancel').focus();
+});
+$('#consent').addEventListener('change',e=>$('#confirm').disabled=!e.target.checked);
+$('#cancel').addEventListener('click',()=>$('#review').close());
+$('#confirm').addEventListener('click',()=>{if($('#confirm').disabled)return;$('#review').close();$('#result').textContent='Preview complete. No run was started and no request was sent.';});
+$('#review').addEventListener('close',()=>$('#start').focus());
+$('#theme').addEventListener('click',()=>{const light=document.documentElement.dataset.theme!=='light';document.documentElement.dataset.theme=light?'light':'dark';$('#theme').textContent=light?'Dark theme':'Light theme';});
+render();
+</script>
+</body></html>

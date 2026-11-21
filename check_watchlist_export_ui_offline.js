@@ -6,6 +6,7 @@ const vm = require("node:vm");
 const root = __dirname;
 const source = fs.readFileSync(path.join(root, "static", "app.js"), "utf8");
 const styles = fs.readFileSync(path.join(root, "static", "styles.css"), "utf8");
+const RunDraft = require(path.join(root, "static", "run-draft.js"));
 
 class Element {
   constructor(id) {
@@ -19,52 +20,46 @@ class Element {
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
   closest() { return { classList: this.classList }; }
   scrollIntoView() { this.scrolled = true; }
+  replaceChildren() {}
 }
 
 const ids = [
-  "wlTable", "wlRefreshSelected", "btnStartRun", "tab-runs", "tab-fund", "tab-themes", "fmExportPdf", "themeExportPdf", "repExportPdf", "confirmText",
-  "optRunAgents", "optAnlOnly", "optNoLLM", "optWatchlist", "optRisk", "optNoMacro", "optDate", "optSince",
+  "wlTable", "wlRefreshSelected", "runStart", "runTickerScope", "runStartHelp", "tab-runs", "tab-fund", "tab-themes", "fmExportPdf", "themeExportPdf", "repExportPdf", "confirmText",
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, new Element(id)]));
 const tickerInputs = ["AAPL", "MSFT"].map((value) => Object.assign(new Element(value), { value, checked: false }));
 const state = {
   refreshTickers: ["AAPL"], flags: { IncludeWatchlist: true },
   bookTickers: [], watchlist: [{ ticker: "AAPL", origins: ["candidate"] }],
+  runDraft: RunDraft.create(), runDraftErrors: [], tab: "watchlist",
   pendingRun: null, pendingTheme: null, pendingRemove: null,
 };
 const tick = [];
 const messages = [];
-const $ = (selector) => elements[selector.slice(1)];
-const $$ = (selector) => selector === "#tickerGrid input" ? tickerInputs : [];
-const selectedTickers = () => tickerInputs.filter((input) => input.checked).map((input) => input.value);
+const $ = (selector) => (elements[selector.slice(1)] ||= new Element(selector.slice(1)));
+const $$ = () => [];
 const handoffStart = source.indexOf("function syncRefreshButton()");
-const handoffEnd = source.indexOf("function selectedScoutSectors()", handoffStart);
-const runStart = source.indexOf('$("#btnStartRun").addEventListener("click"');
-const runEnd = source.indexOf("function isPendingPaid()", runStart);
+const handoffEnd = source.indexOf("function statusMarkup(status)", handoffStart);
+const startFunction = source.indexOf("async function startRunDraft()");
+const startHandlerEnd = source.indexOf("function isPendingPaid()", startFunction);
 assert.ok(handoffStart >= 0 && handoffEnd > handoffStart, "watchlist refresh handoff handler should exist");
-assert.ok(runStart >= 0 && runEnd > runStart, "run manifest handler should exist");
+assert.ok(startFunction >= 0 && startHandlerEnd > startFunction, "run draft Start handler should exist");
 
 const manifestCalls = [];
 const context = {
-  $, $$, state,
-  async setTab(name) { tick.push(name); },
-  selectedTickers,
-  updateRunWarn() {},
+  $, $$, state, RunDraft, runDraftPreviewGeneration: 0,
+  async setTab(name) { tick.push(name); state.tab = name; },
+  runEligibility() { return { holdings: [], candidates: ["AAPL"], groups: { AAPL: "candidate" } }; },
+  renderRunTickerLists() {},
+  renderRunComposer() {},
+  clearRunValidation() { state.runDraftErrors = []; },
+  syncRefreshButton() {},
+  showRunSubmissionError(message) { messages.push(message); },
+  showRunValidation(errors) { state.runDraftErrors = errors; },
+  renderRunResult(message) { messages.push(message); },
   showToast(message) { messages.push(message); },
-  api(endpoint, options) {
-    const body = JSON.parse(options.body);
-    manifestCalls.push({ endpoint, body });
-    return Promise.resolve({
-      manifest_sha256: "offline-refresh-hash",
-      manifest: {
-        mode: body.include_watchlist ? "ANL+REV" : "REV", stages: [],
-        fresh_analysis_tickers: body.tickers, portfolio_review_context_tickers: ["AAPL"],
-        portfolio_report_inputs: {}, cost_estimate: { amount_usd: 0 },
-        spending_controls: { weekly_budget_enabled: false }, model_price_inventory: { rates: [] }, outputs: {},
-      },
-    });
-  },
-  openConfirm() {},
+  async prepareRunPreview(body, options) { manifestCalls.push({ family: "runs", endpoint: "/api/runs/manifest", body, options }); },
+  async prepareThemePreview(mode, includeLlm, sectors, options) { manifestCalls.push({ family: "theme-scout", mode, includeLlm, sectors, options }); },
   openConfirm() {},
   iconSvg() { return ""; },
   moneyLevel(value) { return value == null ? null : `$${Number(value).toFixed(2)}`; },
@@ -72,17 +67,17 @@ const context = {
   esc(value) { return String(value ?? ""); },
   promiseQueue: { items: [] },
 };
-vm.runInNewContext(`${source.slice(runStart, runEnd)}\n${source.slice(handoffStart, handoffEnd)}`, context);
+vm.runInNewContext(source.slice(handoffStart, handoffEnd), context);
+vm.runInNewContext(source.slice(startFunction, startHandlerEnd), context);
 
 (async () => {
   await elements.wlRefreshSelected.listeners.click[0]();
   assert.deepEqual(tick, ["runs"], "selected earnings refreshes should navigate to Runs");
-  assert.deepEqual(tickerInputs.filter((input) => input.checked).map((input) => input.value), ["AAPL"], "handoff should select only stale ticker(s)");
-  assert.equal(elements.optAnlOnly.checked, false, "handoff must keep portfolio review enabled");
-  assert.equal(elements.optWatchlist.checked, true, "candidate refresh should enable watchlist analysis");
-  assert.equal(elements.btnStartRun.scrolled, true, "handoff should direct the user to the confirmation action");
-  assert.match(messages[0], /confirm to start/i, "handoff should tell the user that confirmation is still required");
-  await elements.btnStartRun.listeners.click[0]({});
+  assert.deepEqual(state.runDraft.tickers, ["AAPL"], "handoff should select only stale ticker(s)");
+  assert.equal(state.runDraft.mode, "analyze-review", "handoff keeps the whole portfolio review enabled");
+  assert.equal(elements.runStart.scrolled, true, "handoff should direct the user to Start run");
+  assert.match(elements.runResult.textContent, /choose Start run to prepare/i, "handoff should make clear that review must be prepared");
+  await elements.runStart.listeners.click[0]({});
   assert.equal(manifestCalls.length, 1, "handoff should prepare a manifest without starting a run");
   assert.equal(manifestCalls[0].endpoint, "/api/runs/manifest");
   assert.equal(manifestCalls[0].body.analysis_only, false, "manifest should include the fund-manager review stage");
@@ -101,10 +96,11 @@ vm.runInNewContext(`${source.slice(runStart, runEnd)}\n${source.slice(handoffSta
   const document = { createElement() { return { click() { downloads.push(this.download); } }; } };
   const URL = { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} };
   const fetch = async (url, options) => { requests.push({ url, body: JSON.parse(options.body) }); return { ok: true, async blob() { return {}; } }; };
-  vm.runInNewContext(source.slice(printStart, printEnd), { $, state, document, URL, fetch, setTimeout() {}, showToast: context.showToast });
-  await elements.fmExportPdf.listeners.click[0]();
-  await elements.themeExportPdf.listeners.click[0]();
-  await elements.repExportPdf.listeners.click[0]();
+  const exportContext = { $, state, document, URL, fetch, setTimeout() {}, showToast: context.showToast };
+  vm.runInNewContext(`${source.slice(printStart, printEnd)}\nglobalThis.exportReportPdf = exportReportPdf;`, exportContext);
+  await exportContext.exportReportPdf("fund");
+  await exportContext.exportReportPdf("themes");
+  await exportContext.exportReportPdf("stock");
   assert.deepEqual(requests.map((r) => r.body.markdown), [state.fund.markdown, state.themeReport.markdown, state.stockReport.markdown], "export must send the displayed report markdown");
   assert.deepEqual(downloads, ["fund-manager-report.pdf", "theme-scout-report.pdf", "TEST-report.pdf"]);
   assert.equal(requests[0].url, "/api/report-pdf");

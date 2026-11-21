@@ -25,6 +25,16 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="argus_check_"))
     try:
         shutil.copytree(real_ta / "addons", tmp / "addons", ignore=shutil.ignore_patterns(".git", "__pycache__", "*.bak*"))
+        profile_cli = tmp / "cli" / "main.py"
+        profile_cli.parent.mkdir(parents=True)
+        profile_cli.write_text("# profile fingerprint fixture\n", encoding="utf-8")
+        (tmp / "cli" / "run.py").write_text("# profile runner fingerprint fixture\n", encoding="utf-8")
+        profile_graph = tmp / "tradingagents" / "graph"
+        profile_graph.mkdir(parents=True)
+        (profile_graph / "propagation.py").write_text("# profile propagation fixture\n", encoding="utf-8")
+        profile_agents = tmp / "tradingagents" / "agents"
+        profile_agents.mkdir(parents=True)
+        (profile_agents / "rating.py").write_text("# profile rating fixture\n", encoding="utf-8")
         data = tmp / "data"
         (data / "fund_manager" / "run_costs").mkdir(parents=True)
         (data / "watchlist.json").write_text(json.dumps([{"ticker": "AAA", "sector": "X", "type": "stock"}]), encoding="utf-8")
@@ -48,6 +58,18 @@ def main() -> int:
         assert legacy_fallback["review_outcome"] == "incomplete"
         assert legacy_fallback["unvalidated_outputs"][0]["content"].startswith("# Draft")
         assert server._decision_bundle({"draft": None, "final": None, "raw_text_fallbacks": ["Buy it"]})["trades"] == []
+        legacy_bundle = server._decision_bundle({"draft": {"trades": []}})
+        assert legacy_bundle["decision_contract_version"] is None
+        assert legacy_bundle["decision_context"] is None
+        assert legacy_bundle["candidate_coverage"] == [] and legacy_bundle["position_results"] == []
+        v2_bundle = server._decision_bundle({"draft": {"decision_contract_version": 2,
+            "decision_context": {"baseline_status": "matched"},
+            "candidate_coverage": [{"ticker": "AAA"}],
+            "position_results": [{"ticker": "AAA", "observed_shares": 5}]}})
+        assert v2_bundle["decision_contract_version"] == 2
+        assert v2_bundle["decision_context"]["baseline_status"] == "matched"
+        assert v2_bundle["candidate_coverage"] == [{"ticker": "AAA"}]
+        assert v2_bundle["position_results"][0]["observed_shares"] == 5
         assert server._fund_review_outcome({"draft": None, "final": None}, "snapshot")["review_outcome"] == "snapshot"
         assert server._fund_review_outcome({"review_outcome": "complete", "final": {"headline": "done"}}, "report")["review_outcome"] == "complete"
         class ReconcileLedgerFixture:
@@ -395,6 +417,7 @@ def main() -> int:
             rev_preview = c.post("/api/runs/manifest", json=rev_request).json()
             rev_manifest = rev_preview["manifest"]
             assert rev_manifest["input_fingerprint"]["sha256"]
+            assert rev_manifest["stock_analysis_profile"] is None
             assert rev_manifest["mode"] == "REV"
             assert [stage["id"] for stage in rev_manifest["stages"]] == ["REV:DRAFT", "REV:RISK:1", "REV:FINAL"]
             assert rev_manifest["cost_estimate"]["is_hard_ceiling"] is False
@@ -431,7 +454,26 @@ def main() -> int:
             assert anl_preview.status_code == 200, anl_preview.text
             anl_manifest = anl_preview.json()["manifest"]
             assert anl_manifest["mode"] == "ANL" and anl_manifest["fresh_analysis_tickers"] == ["BBB"]
+            assert anl_manifest["stock_analysis_profile"] == "research_only_v1"
+            assert "custom stock seat text suppressed" in anl_manifest["stock_analysis_prompt_policy"]
+            profile_files = anl_manifest["stock_analysis_profile_fingerprint"]["files"]
+            assert profile_files and profile_files["research_cli"]
+            assert profile_files["research_cli_runner"]
+            assert profile_files["research_propagation"]
+            assert profile_files["research_rating"]
+            assert profile_files == {key: anl_manifest["input_fingerprint"]["files"][key] for key in profile_files}
             assert len(anl_manifest["stages"]) == 1 and anl_manifest["stages"][0]["id"] == "ANL:BBB"
+            profile_sources = [Path(server.TA_ROOT) / "cli" / "main.py",
+                               Path(server.TA_ROOT) / "cli" / "run.py"]
+            for profile_source in profile_sources:
+                original_profile_source = profile_source.read_bytes()
+                try:
+                    profile_source.write_bytes(original_profile_source + b"\n# reviewed profile fingerprint fixture\n")
+                    profile_changed = c.post("/api/runs", json={**anl_request,
+                        "manifest_sha256": anl_preview.json()["manifest_sha256"], "confirm": True}, headers=headers)
+                    assert profile_changed.status_code == 409, profile_changed.text
+                finally:
+                    profile_source.write_bytes(original_profile_source)
             anl_start = c.post("/api/runs", json={**anl_request,
                 "manifest_sha256": anl_preview.json()["manifest_sha256"], "confirm": True}, headers=headers)
             assert anl_start.status_code == 200, anl_start.text
@@ -627,11 +669,11 @@ def main() -> int:
             assert scout_scope["dynamic_discovery"]["max_stock_tickers_per_sector"] == 20
             app_js = (HERE / "static" / "app.js").read_text(encoding="utf-8")
             assert "Selected sector ETFs:" in app_js and "Current holdings in model context:" in app_js
-            assert "Weekly spending check:" in app_js and 'spending.weekly_budget_enabled === false ? "disabled"' in app_js
+            assert "Weekly check:" in app_js and 'spending.weekly_budget_enabled === false ? "disabled"' in app_js
             assert "Possible new stock symbols:" in app_js and "not known at confirmation" in app_js
             html = (HERE / "static" / "index.html").read_text(encoding="utf-8")
             assert "configured scout model" in html and "Include the Sol call" not in html
-            assert "Model-based estimate:" in app_js
+            assert "Configured budget-planning placeholder:" in app_js
             assert '"Sol call is paid"' not in app_js
             assert "Weekly scout included the configured model call" in app_js
             server_py = (HERE / "server.py").read_text(encoding="utf-8")
@@ -713,7 +755,15 @@ def main() -> int:
         expected_inputs = fingerprint_run_inputs(data, fake_ta, {
             "agent_config": fake_ta / "addons" / "agent_config.json",
             "model_rates": fake_ta / "addons" / "openrouter_models.json",
+            "argus_runner": HERE / "run_analysis.py",
+            "argus_run_inputs": HERE / "run_inputs.py",
         })["sha256"]
+        expected_profile_inputs = fingerprint_run_inputs(data, fake_ta, {
+            "agent_config": fake_ta / "addons" / "agent_config.json",
+            "model_rates": fake_ta / "addons" / "openrouter_models.json",
+            "argus_runner": HERE / "run_analysis.py",
+            "argus_run_inputs": HERE / "run_inputs.py",
+        }, include_research_profile=True)["sha256"]
         verified = subprocess.run([
             sys.executable, str(HERE / "run_analysis.py"), "--ta-root", str(fake_ta),
             "--data-root", str(data), "--manifest-input-fingerprint", expected_inputs,
@@ -723,7 +773,7 @@ def main() -> int:
         assert verified.returncode == 0, verified.stdout
         wrong_scope = subprocess.run([
             sys.executable, str(HERE / "run_analysis.py"), "--ta-root", str(fake_ta),
-            "--data-root", str(data), "--manifest-input-fingerprint", expected_inputs,
+            "--data-root", str(data), "--manifest-input-fingerprint", expected_profile_inputs,
             "--manifest-analysis-tickers-json", '["BBB"]', "--run-agents", "--tickers", "AAA",
         ], env=os.environ.copy(), cwd=fake_ta, text=True,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20)

@@ -55,6 +55,17 @@ assert.match(legacy, /<td class="ar-num">2<\/td>/);
 assert.match(legacy, /&lt;legacy&gt;/);
 assert.match(legacy, /<td class="ar-num">—<\/td>/);
 
+const contract = render([
+  { status: "deferred", account_id: "A1", ticker: "AAA", action: "buy", requested_shares: 8,
+    target_shares: 20, effective_shares: 0, execution_intent: "deferred", review_horizon: "6 months",
+    condition: "Close above $100", change_reason: "Wait for evidence", sizing_rationale: "Build toward target" },
+], format);
+assert.match(contract, /deferred/);
+assert.match(contract, /20<\/td>/);
+assert.match(contract, /6 months/);
+assert.match(contract, /Close above \$100/);
+assert.match(contract, /Build toward target/);
+
 const app = fs.readFileSync("static/app.js", "utf8");
 const policySummary = globalThis.argusRenderTradePolicy({
   fee_per_order_usd: 5, min_buy_notional_usd: 2000, min_residual_notional_usd: 1500,
@@ -79,5 +90,27 @@ assert.match(rawFixture.result, /<p>safe<\/p>/);
 assert.match(app, /renderUnvalidatedOutputs\(rawOutputs, \{ esc, marked, DOMPurify \}\)/);
 assert.match(app, /unvalidated_outputs/);
 assert.match(app, /raw model output|raw model output/i);
+assert.match(app, /argusRenderFundContext\(/);
+const fundContext = globalThis.argusRenderFundContext({
+  baseline_status: "matched", prior_run_id: "2026-11-14/run-1", prior_report_date: "2026-11-14",
+  prior_decision_summary: "<earlier rationale>", prior_cash_decision: { target_cash_pct: 10 },
+  prior_objections: ["wait for earnings"], prior_changes_vs_draft: ["reduced first tranche"],
+  comparisons: [{ account_id: "A1", ticker: "AAA", observed_shares: 5, prior_observed_shares: 4,
+    quantity_change: 1, prior_proposed_shares: 2, prior_intent: "current", execution_attribution: "unknown",
+    current_research_status: "fresh" }],
+}, [{ ticker: "BBB", disposition: "reviewed", research_status: "legacy", source_profile: "unknown",
+  evidence_date: "2026-11-14", rationale: "<legacy>" }], [{ account_id: "A1", ticker: "AAA", observed_shares: 5,
+  hypothetical_after_shares: 6, target_shares: 8, target_gap_shares: 2, position_status: "partial",
+  validation_status: "accepted" }], { esc: format.esc });
+assert.match(fundContext, /Previously observed/);
+assert.match(fundContext, /&lt;earlier rationale&gt;/);
+assert.match(fundContext, /wait for earnings/);
+assert.match(fundContext, /reduced first tranche/);
+assert.match(fundContext, /unknown/);
+assert.match(fundContext, /&lt;legacy&gt;/);
+assert.doesNotMatch(fundContext, /<legacy>/);
+assert.match(fundContext, /Hypothetical after/);
+assert.match(fundContext, /legacy/);
+assert.match(fs.readFileSync("static/index.html", "utf8"), /fund-context-1/);
 
 console.log("argus fund manager UI offline check: ok (statuses, explicit empty, legacy, nulls, escaped text)");

@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="/static/argus-brand/assets/logo/apple-touch-icon-180.png" />
   <link rel="stylesheet" href="/static/argus-brand/tokens.css" />
   <link rel="stylesheet" href="/static/argus-brand/components.css" />
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=runs-draft-1" />
   <script src="/static/theme.js"></script>
   <!-- marked 15.0.12, DOMPurify 3.2.4, Chart.js 4.4.7. Pinned local copies, not the CDN. -->
   <script src="/static/vendor/purify.min.js"></script>
@@ -198,8 +198,8 @@
             <table class="ar-table" id="fmTrades">
               <thead>
                 <tr>
-                  <th>Status</th><th>Account</th><th>Ticker</th><th>Action</th><th class="ar-num">Requested</th><th class="ar-num">Effective</th>
-                  <th class="ar-num">Est. price</th><th class="ar-num">Fee</th><th class="ar-num">Cash effect</th><th>Reason</th><th>Agent</th><th>Rationale</th>
+                  <th>Status</th><th>Account</th><th>Ticker</th><th>Action</th><th class="ar-num">Requested</th><th class="ar-num">Target</th><th class="ar-num">Effective</th>
+                  <th>Intent</th><th>Horizon</th><th class="ar-num">Est. price</th><th class="ar-num">Fee</th><th class="ar-num">Cash effect</th><th>Reason / condition</th><th>Agent</th><th>Rationale</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -216,6 +216,10 @@
             <div class="ar-card__body"><div class="ar-list" id="fmHistory"></div></div>
           </section>
         </div>
+        <section class="ar-card">
+          <div class="ar-card__header"><h2 class="ar-card__title">Portfolio context and position outcomes</h2></div>
+          <div class="ar-card__body" id="fmDecisionContext"><p class="ar-muted">—</p></div>
+        </section>
         <section class="ar-card hidden" id="fmUnvalidatedCard" aria-labelledby="fmUnvalidatedTitle">
           <div class="ar-card__header"><h2 class="ar-card__title" id="fmUnvalidatedTitle">Unvalidated model output</h2></div>
           <div class="ar-card__body ar-stack">
@@ -311,82 +315,67 @@
         <div class="ar-page-head">
           <div>
             <h1 class="ar-h1">Runs</h1>
-            <p class="ar-muted">Trigger fund manager / selective agent runs (costs money when models run)</p>
+            <p class="ar-muted">Choose what to update, review the scope, then decide whether to start.</p>
             <p class="ar-subtle" id="runSpend">Weekly spend —</p>
           </div>
         </div>
-        <section class="ar-card ar-card--flush ar-run-guide" aria-labelledby="runGuideTitle">
+        <section class="ar-card ar-card--flush ar-run-chooser" aria-labelledby="runGuideTitle">
           <div class="ar-card__header">
-            <div><h2 class="ar-card__title" id="runGuideTitle">Run scenarios</h2><p class="ar-subtle">Choose a routine. Paid actions open the usual preview and confirmation first.</p></div>
+            <div><h2 class="ar-card__title" id="runGuideTitle">Choose a run</h2><p class="ar-subtle">Choose a setup, adjust New run below, then click Start run.</p></div>
           </div>
-          <div class="ar-table-wrap">
-            <table class="ar-table">
-              <thead><tr><th>When</th><th>Scenario</th><th>Purpose</th><th>Cost / note</th><th>Run</th></tr></thead>
-              <tbody>
-                <tr><td>Daily</td><td><strong>Refresh snapshot</strong></td><td>Update portfolio prices and calculated values without model calls.</td><td>Free · no AI review</td><td><button type="button" class="ar-btn ar-btn--sm" data-run-scenario="snapshot"><span class="ar-btn__label">Run snapshot</span></button></td></tr>
-                <tr><td>Daily or as needed</td><td><strong>Free market screen</strong></td><td>See relative strength and price setup across discovery sectors.</td><td>Free · does not edit watchlist</td><td><button type="button" class="ar-btn ar-btn--sm" data-run-scenario="screen"><span class="ar-btn__label">Run screen</span></button></td></tr>
-                <tr><td>Weekly</td><td><strong>Scout watchlist ideas</strong></td><td>Ask the scout model for sector ideas; review its proposal before applying changes.</td><td>One paid model call · estimate shown before confirmation</td><td><button type="button" class="ar-btn ar-btn--sm" data-run-scenario="scout"><span class="ar-btn__label">Run scout</span></button></td></tr>
-                <tr><td>Weekly</td><td><strong>Analyze selected tickers</strong></td><td>Run ticker research only for names you select below; skips portfolio review.</td><td>Paid per ticker · selection required</td><td><button type="button" class="ar-btn ar-btn--sm" data-run-scenario="analyze"><span class="ar-btn__label">Analyze selection</span></button></td></tr>
-                <tr><td>As needed</td><td><strong>Analyze, then review portfolio</strong></td><td>Refresh selected ticker reports, then ask the fund manager to review the whole portfolio.</td><td>Paid per ticker plus fund-manager calls · selection required</td><td><button type="button" class="ar-btn ar-btn--sm" data-run-scenario="analyze-review"><span class="ar-btn__label">Analyze + review</span></button></td></tr>
-                <tr><td>After reports refresh</td><td><strong>Fund-manager review</strong></td><td>Review the portfolio using existing ticker reports and current holdings.</td><td>Paid · 5 calls · scope and estimate shown before confirmation</td><td><button type="button" class="ar-btn ar-btn--sm ar-btn--primary" data-run-scenario="fund"><span class="ar-btn__label">Run review</span></button></td></tr>
-              </tbody>
-            </table>
-          </div>
+          <fieldset id="runScenarios" class="ar-run-scenarios">
+            <legend class="ar-sr-only">Run type</legend>
+            <label class="ar-run-scenario"><input type="radio" name="runScenario" value="snapshot" checked /><span><strong>Refresh prices &amp; portfolio metrics</strong><span>Update prices and calculated portfolio statistics from your saved holdings. No AI review or broker import.</span><em>No AI calls</em></span></label>
+            <label class="ar-run-scenario"><input type="radio" name="runScenario" value="screen" /><span><strong>Screen the market</strong><span>Refresh the market screen across selected discovery sectors. Your watchlist stays unchanged.</span><em>No AI calls</em></span></label>
+            <label class="ar-run-scenario"><input type="radio" name="runScenario" value="scout" /><span><strong>Find watchlist ideas</strong><span>Refresh the screen, then ask the scout for watchlist suggestions. Review and apply suggestions separately.</span><em>Paid AI</em></span></label>
+            <label class="ar-run-scenario"><input type="radio" name="runScenario" value="analyze" /><span><strong>Research selected tickers</strong><span>Create fresh research reports for the names you choose. Skip the portfolio review.</span><em>Paid AI</em></span></label>
+            <label class="ar-run-scenario"><input type="radio" name="runScenario" value="analyze-review" /><span><strong>Research + portfolio review</strong><span>Refresh your selected ticker reports, then review the whole portfolio using fresh and saved research.</span><em>Paid AI</em></span></label>
+            <label class="ar-run-scenario"><input type="radio" name="runScenario" value="fund" /><span><strong>Review portfolio</strong><span>Ask the fund manager to review your holdings and saved watchlist using existing ticker reports. No fresh ticker research.</span><em>Paid AI</em></span></label>
+          </fieldset>
+          <p id="runStatus" class="ar-subtle" role="status" aria-live="polite">A free setup is selected. Nothing has started.</p>
         </section>
-        <div class="ar-grid">
-          <section class="ar-card ar-span-7">
-            <div class="ar-card__header"><h2 class="ar-card__title">New run</h2></div>
-            <div class="ar-card__body ar-stack">
-              <div class="ar-row">
-                <label class="ar-check"><input type="checkbox" id="optRunAgents" /> Run agents first (-RunAgents)</label>
-                <label class="ar-check"><input type="checkbox" id="optAnlOnly" /> Ticker analyses only (ANL; skip portfolio review)</label>
-                <label class="ar-check"><input type="checkbox" id="optNoLLM" /> Snapshot only (-NoLLM, free)</label>
-                <label class="ar-check"><input type="checkbox" id="optRisk" /> Include risk notes</label>
-                <label class="ar-check"><input type="checkbox" id="optNoMacro" /> No macro</label>
-                <label class="ar-check hidden" id="optWlWrap"><input type="checkbox" id="optWatchlist" /> Run watchlist agents</label>
-              </div>
-              <div class="ar-date-row">
-                <div class="ar-field">
-                  <label class="ar-label" for="optDate">Analysis date</label>
-                  <input class="ar-input" id="optDate" type="date" />
+        <div class="ar-grid ar-runs-layout">
+          <section class="ar-card ar-span-7" aria-labelledby="runComposerTitle">
+            <div class="ar-card__header"><div><h2 class="ar-card__title" id="runComposerTitle">New run</h2><p id="runPurpose" class="ar-subtle"></p><p id="runPurposeCopy" class="ar-muted"></p></div></div>
+            <div id="runComposer" class="ar-card__body ar-stack">
+              <div id="runErrors" class="ar-run-errors" role="alert" tabindex="-1" aria-labelledby="runErrorHeading" hidden><h3 id="runErrorHeading" class="ar-h3">There is a problem</h3><ul id="runErrorList"></ul></div>
+              <fieldset id="runTickerScope" class="ar-run-group" hidden>
+                <legend>Ticker research scope <span id="runTickerCount" class="ar-subtle"></span></legend>
+                <p id="runTickerHelp" class="ar-subtle">Only checked tickers get new research. Nothing selected means nothing will be researched.</p>
+                <div class="ar-run-actions"><button class="ar-btn" type="button" data-run-bulk="holding">Select all holdings</button><button class="ar-btn" type="button" data-run-bulk="candidate">Select all candidates</button><button class="ar-btn" type="button" data-run-bulk="all">Select all</button><button class="ar-btn" type="button" data-run-bulk="clear">Clear selection</button></div>
+                <div id="runTickerChanges" class="ar-run-change-list" hidden></div>
+                <div class="ar-run-scope-columns"><div><h3 class="ar-h3">Holdings</h3><div id="runHoldingTickers" class="ar-run-ticker-list"></div></div><div><h3 class="ar-h3">Watchlist candidates</h3><div id="runCandidateTickers" class="ar-run-ticker-list"></div></div></div>
+                <p id="runTickerError" class="ar-run-error" aria-live="polite" hidden></p>
+              </fieldset>
+              <div id="runPortfolioScope" class="ar-run-scope-note" hidden><strong>Portfolio review scope: all saved holdings and watchlist candidates.</strong><span>Ticker selection limits new research only. The fund manager still reviews the whole portfolio using dated available research.</span><span id="runExistingReports">Existing ticker reports are reused with their dates and gaps.</span></div>
+              <div id="runSnapshotScope" class="ar-run-scope-note" hidden><strong>Uses your saved holdings.</strong><span>Updates saved holdings; does not import broker positions or balances.</span></div>
+              <fieldset id="runSectorScope" class="ar-run-group" hidden>
+                <legend>Discovery sectors <span id="runSectorCount" class="ar-subtle"></span></legend>
+                <p id="runSectorHelp" class="ar-subtle">Sectors guide discovery. Holdings and saved candidates remain in context; the screen may discover additional names.</p>
+                <div id="runSectors" class="ar-run-sector-list"></div>
+                <p id="runSectorError" class="ar-run-error" aria-live="polite" hidden></p>
+              </fieldset>
+              <fieldset id="runDateBlock" class="ar-run-group">
+                <legend>Market date</legend>
+                <div class="ar-run-date-options">
+                  <label class="ar-run-option"><input type="radio" name="runDateMode" value="auto" checked /><span>Automatic</span></label>
+                  <label class="ar-run-option"><input type="radio" name="runDateMode" value="custom" /><span>Choose a date</span></label>
                 </div>
-                <div class="ar-field">
-                  <label class="ar-label" for="optSince">Since</label>
-                  <input class="ar-input" id="optSince" type="date" />
+                <p id="runDateHelp" class="ar-subtle">Automatic lets the market preflight choose the session date. A chosen date is an advanced override.</p>
+                <div id="runCustomDateWrap" hidden><label class="ar-label" for="runDateInput">Chosen market date</label><input class="ar-input" id="runDateInput" type="date" aria-describedby="runDateHelp runDateError" /><p id="runDateError" class="ar-run-error" aria-live="polite" hidden></p></div>
+              </fieldset>
+              <p id="runDiscoveryDate" class="ar-subtle" hidden><strong>Data date:</strong> Latest available market data. These discovery runs do not accept a date override.</p>
+              <details id="runOptions" class="ar-run-options" hidden>
+                <summary>More options</summary>
+                <div>
+                  <label id="runEconomicWrap" class="ar-run-check"><input type="checkbox" id="runEconomicData" checked aria-describedby="runEconomicHelp" /><span><strong>Include economic data</strong><small id="runEconomicHelp">Include the FRED economic snapshot in this review.</small></span></label>
+                  <p id="runRiskNote" class="ar-subtle" hidden>Risk analysis comes from the saved research brief and the portfolio review committee.</p>
+                  <div id="runSinceWrap" class="ar-field"><label class="ar-label" for="runSince">Only reuse holding reports saved on or after</label><input class="ar-input" id="runSince" type="date" aria-describedby="runSinceHelp" /><small id="runSinceHelp">Optional UTC date. Holdings only, not watchlist candidates. Does not refresh reports; missing inputs will be shown.</small></div>
                 </div>
-              </div>
-              <h3 class="ar-h3">Tickers</h3>
-              <p class="ar-subtle" id="runSelectionSummary">0 selected. Empty means all applicable positions when agents run.</p>
-              <div class="ar-row">
-                <button class="ar-btn" id="selBook" type="button">
-                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#wallet"/></svg>
-                  <span class="ar-btn__label">Select book</span>
-                </button>
-                <button class="ar-btn" id="selWatch" type="button">
-                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#eye"/></svg>
-                  <span class="ar-btn__label">Select watchlist</span>
-                </button>
-                <button class="ar-btn" id="selAll" type="button">Select all book + watchlist</button>
-                <button class="ar-btn" id="selNone" type="button">
-                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#x"/></svg>
-                  <span class="ar-btn__label">Clear</span>
-                </button>
-                <button class="ar-btn" id="selEtfs" type="button">
-                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#filter"/></svg>
-                  <span class="ar-btn__label">Sector ETFs</span>
-                </button>
-              </div>
-              <div class="ar-ticker-grid" id="tickerGrid"></div>
-              <div class="ar-alert ar-alert--warn" id="runWarn" role="status">
-                <svg class="ar-icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#triangle-alert"/></svg>
-                <div class="ar-alert__body" id="runWarnText">Full agent analysis is ~7 minutes per ticker plus model fees. Confirm before starting.</div>
-              </div>
-              <div class="ar-row">
-                <button class="ar-btn ar-btn--primary" id="btnStartRun" type="button">
-                  <svg class="ar-btn__icon" aria-hidden="true"><use href="/static/argus-brand/assets/icons/argus-icons.svg#play"/></svg>
-                  <span class="ar-btn__label">Start run</span>
-                </button>
-              </div>
+              </details>
+              <section class="ar-run-summary" aria-labelledby="runSummaryTitle"><h3 class="ar-h3" id="runSummaryTitle">Run summary</h3><dl><dt>Refreshes</dt><dd id="runSummaryRefresh"></dd><dt>Reuses</dt><dd id="runSummaryReuse"></dd><dt>Output</dt><dd id="runSummaryOutput"></dd><dt>AI cost</dt><dd id="runSummaryCost"></dd></dl></section>
+              <div class="ar-run-start"><p id="runStartHelp" class="ar-subtle">Start run opens a review. Paid runs require your explicit consent.</p><button class="ar-btn ar-btn--primary" id="runStart" type="button">Start run</button></div>
+              <p id="runResult" class="ar-subtle" role="status" aria-live="polite"></p>
             </div>
           </section>
           <section class="ar-card ar-span-5">
@@ -614,7 +603,8 @@
   <script src="/static/tiger-preview-guard.js?v=broker-preview-guard-2"></script>
   <script src="/static/formatters.js"></script>
   <script src="/static/portfolio-holdings-render.js"></script>
-  <script src="/static/fund-trade-render.js"></script>
-  <script src="/static/app.js?v=fund-review-outcome-1"></script>
+  <script src="/static/fund-trade-render.js?v=fund-context-1"></script>
+  <script src="/static/run-draft.js?v=runs-draft-1"></script>
+  <script src="/static/app.js?v=runs-draft-1"></script>
 </body>
 </html>

@@ -3,6 +3,8 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const SPRITE = "/static/argus-brand/assets/icons/argus-icons.svg";
 const MINUS = "\u2212";
+const RunDraft = globalThis.ArgusRunDraft;
+let runDraftPreviewGeneration = 0;
 
 const state = {
   tab: "portfolio",
@@ -21,6 +23,8 @@ const state = {
   stockReport: null,
   selectedRun: null,
   runScopeRows: {},
+  runDraft: RunDraft.create(),
+  runDraftErrors: [],
   pendingTheme: null,
   pendingRemove: null,
   logOffset: 0,
@@ -29,6 +33,7 @@ const state = {
   chart: null,
   bookTickers: [],
   pendingRun: null,
+  runReviewFocusOnClose: false,
   tigerPreview: null,
   tigerPreviewRequestId: 0,
   pendingAgentSave: false,
@@ -295,6 +300,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
 
 /* ---------- tabs ---------- */
 async function setTab(name) {
+  if (state.tab === "runs" && name !== "runs") runDraftPreviewGeneration += 1;
   state.tab = name;
   $$("#nav .ar-tab").forEach((b) => {
     const on = b.dataset.tab === name;
@@ -324,10 +330,8 @@ async function loadHealth() {
   const pill = $("#healthPill");
   try {
     const h = await api("/api/health");
-    state.flags = h.flags || {};
     pill.className = `ar-badge ${h.data_ok ? "ar-badge--ok" : "ar-badge--warn"}`;
     pill.innerHTML = `<span class="ar-badge__dot"></span> ${h.data_ok ? "Connected" : "Data missing"}`;
-    $("#optWlWrap").classList.toggle("hidden", !state.flags.IncludeWatchlist);
   } catch (e) {
     pill.className = "ar-badge ar-badge--danger";
     pill.innerHTML = `<span class="ar-badge__dot"></span> Offline`;
@@ -747,27 +751,6 @@ $("#wlTable").addEventListener("change", (event) => {
   syncRefreshButton();
 });
 
-$("#wlRefreshSelected").addEventListener("click", async () => {
-  const tickers = [...state.refreshTickers];
-  if (!tickers.length) return;
-  await setTab("runs");
-  const selected = new Set(tickers);
-  $$("#tickerGrid input").forEach((input) => {
-    input.checked = selected.has(input.value);
-    input.closest(".ar-ticker-chip").classList.toggle("on", input.checked);
-  });
-  state.refreshTickers = [];
-  syncRefreshButton();
-  const held = new Set(state.bookTickers);
-  const hasHeld = tickers.some((ticker) => held.has(ticker));
-  const hasCandidate = tickers.some((ticker) => !held.has(ticker)
-    && state.watchlist.some((row) => row.ticker === ticker && (row.origins || ["candidate"]).includes("candidate")));
-  configureScenario({ agents: hasHeld, watchlist: hasCandidate, selection: "preserve" });
-  updateRunWarn();
-  $("#btnStartRun").scrollIntoView({ behavior: "smooth", block: "center" });
-  showToast("Review the fresh analysis scope, then confirm to start.", "warning");
-});
-
 function selectedScoutSectors() {
   return $$("#scoutSectors input[data-scout-sector]:checked").map((el) => el.dataset.scoutSector);
 }
@@ -980,6 +963,12 @@ async function loadFund(path) {
   });
 
   const d = data.decision || {};
+  $("#fmDecisionContext").innerHTML = globalThis.argusRenderFundContext(
+    data.decision_context,
+    data.candidate_coverage,
+    data.position_results,
+    { esc },
+  );
   const summary = d.decision_summary || d.diagnosis || "";
   const warns = (data.warnings || []).map((w) => `<li>${esc(w)}</li>`).join("");
   const cash = d.cash_decision || data.cash_decision || {};
@@ -1055,11 +1044,7 @@ $("#fmHistory").addEventListener("click", (e) => {
 
 /* ---------- runs ---------- */
 async function loadRuns() {
-  const cfg = await api("/api/config");
-  state.flags = cfg.flags || {};
-  $("#optWlWrap").classList.toggle("hidden", !state.flags.IncludeWatchlist);
-
-const [book, wl, runs, spend, settings] = await Promise.all([
+  const [book, wl, runs, spend, settings] = await Promise.all([
     api("/api/portfolio"),
     api("/api/watchlist"),
     api("/api/runs"),
@@ -1083,118 +1068,222 @@ api("/api/settings"),
   }
   state.bookTickers = (book.positions || []).map((p) => p.ticker);
   state.watchlist = wl.items || [];
-state.settings = settings;
-  state.runScopeRows = {};
-  (book.positions || []).forEach((row) => { state.runScopeRows[row.ticker] = { ...row, held: true }; });
-  state.watchlist.forEach((row) => {
-    state.runScopeRows[row.ticker] = { ...(state.runScopeRows[row.ticker] || {}), ...row };
-  });
+  state.settings = settings;
   state.runs = runs.runs || [];
-  buildTickerGrid();
+  renderRunTickerLists();
   renderRunList();
-  updateRunWarn();
+  renderRunComposer();
 }
 
-function buildTickerGrid() {
-  const selected = new Set($$("#tickerGrid input:checked").map((i) => i.value));
-  const all = [];
-  state.bookTickers.forEach((t) => all.push({ t, g: "book" }));
-  state.watchlist.filter((w) => (w.origins || ["candidate"]).includes("candidate")).forEach((w) => {
-    if (!all.find((x) => x.t === w.ticker)) all.push({ t: w.ticker, g: "watch", sector: w.sector });
+function runEligibility() {
+  const holdings = [...new Set((state.bookTickers || []).map((ticker) => String(ticker).toUpperCase()))];
+  const held = new Set(holdings);
+  const candidates = [...new Set((state.watchlist || [])
+    .map((row) => String(row.ticker || "").toUpperCase())
+    .filter((ticker) => ticker && !held.has(ticker)))];
+  const groups = {};
+  holdings.forEach((ticker) => { groups[ticker] = "holding"; });
+  candidates.forEach((ticker) => { groups[ticker] = "candidate"; });
+  return { holdings, candidates, groups };
+}
+
+function renderRunSectorOptions() {
+  $("#runSectors").innerHTML = RunDraft.sectors.map((sector) => `
+    <label class="ar-run-chip"><input type="checkbox" data-run-sector value="${esc(sector.ticker)}" checked aria-describedby="runSectorHelp runSectorError" />
+      <span><strong>${esc(sector.label)}</strong><small>${esc(sector.ticker)}</small></span></label>`).join("");
+}
+
+renderRunSectorOptions();
+
+let runPreviewInFlight = false;
+
+function renderRunTickerLists() {
+  const eligible = runEligibility();
+  const selected = new Set(state.runDraft.tickers || []);
+  const renderGroup = (tickers, group) => tickers.length
+    ? tickers.map((ticker) => {
+      const row = (state.watchlist || []).find((item) => String(item.ticker || "").toUpperCase() === ticker) || {};
+      const detail = group === "holding" ? "Current holding" : (row.sector || row.type || "Saved candidate");
+      return `<label class="ar-run-chip"><input type="checkbox" data-run-ticker="${esc(ticker)}" data-run-source="${group}" value="${esc(ticker)}" ${selected.has(ticker) ? "checked" : ""} aria-describedby="runTickerHelp runTickerError" /><span><strong>${esc(ticker)}</strong><small>${esc(detail)}</small></span></label>`;
+    }).join("")
+    : `<p class="ar-subtle">No ${group === "holding" ? "saved holdings" : "non-held saved candidates"} available.</p>`;
+  $("#runHoldingTickers").innerHTML = renderGroup(eligible.holdings, "holding");
+  $("#runCandidateTickers").innerHTML = renderGroup(eligible.candidates, "candidate");
+  renderRunTickerChanges(eligible.groups);
+}
+
+function renderRunTickerChanges(groups = runEligibility().groups) {
+  const changes = RunDraft.selectedSourceChanges(state.runDraft, groups);
+  const rows = [
+    ...changes.missing.map((ticker) => ({ ticker, message: "No longer eligible" })),
+    ...changes.changed.map((ticker) => ({ ticker, message: `Scope changed from ${state.runDraft.tickerSources[ticker]} to ${groups[ticker]}` })),
+  ];
+  const box = $("#runTickerChanges");
+  box.hidden = rows.length === 0;
+  box.innerHTML = rows.length ? `<p class="ar-subtle">Review these selected names before continuing. Uncheck and reselect a name to confirm its current scope, or remove it.</p>${rows.map(({ ticker, message }) => `<div class="ar-run-change"><span><strong>${esc(ticker)}</strong> · ${esc(message)}</span><button class="ar-btn ar-btn--sm" type="button" data-remove-run-ticker="${esc(ticker)}" aria-label="Remove ${esc(ticker)} from selected research">Remove</button></div>`).join("")}` : "";
+}
+
+function renderRunComposer() {
+  const draft = state.runDraft;
+  const meta = RunDraft.modes[draft.mode];
+  const research = RunDraft.isResearch(draft.mode);
+  const portfolio = RunDraft.isPortfolioReview(draft.mode);
+  const discovery = RunDraft.isDiscovery(draft.mode);
+  const snapshot = draft.mode === "snapshot";
+  const selected = draft.tickers || [];
+  const sectorLabels = RunDraft.sectors.filter((sector) => draft.sectors.includes(sector.ticker)).map((sector) => sector.ticker);
+  const names = selected.length ? selected.join(", ") : "none selected";
+  const summaryRefresh = snapshot ? "Prices and calculated portfolio statistics"
+    : discovery ? `${draft.mode === "screen" ? "Screen" : "Scout screen"} across ${sectorLabels.length ? sectorLabels.join(", ") : "no sectors selected"}`
+      : research ? `New ticker research: ${names}` : "No fresh ticker research";
+  const summaryReuse = portfolio ? "Saved research for all holdings and watchlist candidates, with dates and evidence gaps"
+    : snapshot ? "Saved holdings and watchlist context"
+      : discovery ? "Selected discovery sectors; saved candidates remain unchanged"
+        : "No portfolio review; existing reports are not included in a fund decision";
+
+  $("#runPurpose").textContent = meta.title;
+  $("#runPurposeCopy").textContent = meta.description;
+  $("#runTickerScope").hidden = !research;
+  $("#runPortfolioScope").hidden = !portfolio;
+  $("#runSnapshotScope").hidden = !snapshot;
+  $("#runSectorScope").hidden = !discovery;
+  $("#runDateBlock").hidden = discovery;
+  $("#runDiscoveryDate").hidden = !discovery;
+  $("#runCustomDateWrap").hidden = draft.dateMode !== "custom";
+  $("#runOptions").hidden = !(snapshot || portfolio);
+  $("#runEconomicWrap").hidden = !(snapshot || portfolio);
+  $("#runRiskNote").hidden = !portfolio;
+  $("#runSinceWrap").hidden = !portfolio;
+  $("#runTickerCount").textContent = `· ${selected.length} selected`;
+  $("#runSectorCount").textContent = `· ${sectorLabels.length} of 8 selected`;
+  $("#runSummaryRefresh").textContent = summaryRefresh;
+  $("#runSummaryReuse").textContent = summaryReuse;
+  $("#runSummaryOutput").textContent = meta.output;
+  $("#runSummaryCost").textContent = meta.paid
+    ? "Paid AI; current scope and estimate are shown in the review."
+    : "No AI calls.";
+  $("#runEconomicData").checked = Boolean(draft.includeEconomicData);
+  $("#runSince").value = draft.since || "";
+  $("#runDateInput").value = draft.date || "";
+  $("input[name='runDateMode'][value='auto']").checked = draft.dateMode !== "custom";
+  $("input[name='runDateMode'][value='custom']").checked = draft.dateMode === "custom";
+  $$("#runSectors input[data-run-sector]").forEach((input) => { input.checked = draft.sectors.includes(input.value); });
+  $$("#runTickerScope input[data-run-ticker]").forEach((input) => { input.checked = selected.includes(input.value); });
+  $$("#runScenarios input[name='runScenario']").forEach((input) => { input.checked = input.value === draft.mode; });
+  $("#runStart").disabled = runPreviewInFlight;
+  $("#runStart").textContent = runPreviewInFlight ? "Preparing review…" : "Start run";
+  renderRunTickerChanges();
+}
+
+function clearRunValidation() {
+  state.runDraftErrors = [];
+  const summary = $("#runErrors");
+  summary.hidden = true;
+  $("#runErrorList").replaceChildren();
+  ["runTickerError", "runSectorError", "runDateError"].forEach((id) => {
+    const input = $("#" + id);
+    input.hidden = true;
+    input.textContent = "";
   });
-  $("#tickerGrid").innerHTML = all.map(({ t, g, sector }) => `
-    <label class="ar-check ar-ticker-chip ${selected.has(t) ? "on" : ""}">
-      <input type="checkbox" value="${esc(t)}" ${selected.has(t) ? "checked" : ""} />
-      <span><strong>${esc(t)}</strong><br/><span class="ar-subtle">${g === "book" ? "book" : esc(sector || "watch")}</span></span>
-    </label>`).join("");
-  $$("#tickerGrid input").forEach((inp) => {
-    inp.addEventListener("change", () => {
-      inp.closest(".ar-ticker-chip").classList.toggle("on", inp.checked);
-      updateRunWarn();
-    });
+  $$("#runComposer [aria-invalid='true']").forEach((input) => input.removeAttribute("aria-invalid"));
+}
+
+function showRunValidation(errors, focus = true) {
+  state.runDraftErrors = errors;
+  const inline = { tickers: "runTickerError", sectors: "runSectorError", date: "runDateError" };
+  const target = { tickers: "runTickerScope", sectors: "runSectorScope", date: "runDateInput" };
+  errors.forEach((error) => {
+    const inlineEl = $("#" + inline[error.field]);
+    inlineEl.textContent = error.message;
+    inlineEl.hidden = false;
+    $("#" + target[error.field]).setAttribute("aria-invalid", "true");
   });
+  const summary = $("#runErrors");
+  $("#runErrorList").innerHTML = errors.map((error) => `<li><a href="#${target[error.field]}">${esc(error.message)}</a></li>`).join("");
+  summary.hidden = errors.length === 0;
+  if (focus && errors.length) summary.focus();
 }
 
-function selectedTickers() {
-  return $$("#tickerGrid input:checked").map((i) => i.value);
+function renderRunResult(message, isError = false) {
+  const result = $("#runResult");
+  result.textContent = message;
+  result.classList.toggle("ar-run-result--error", isError);
 }
 
-function freshAnalysisScope(runAgents, includeWatchlist, selectedTickers = []) {
-  const selected = new Set(selectedTickers);
-  const hasSelection = selectedTickers.length > 0;
-  const book = new Set(state.bookTickers);
-  const tickers = [];
-  if (runAgents) tickers.push(...state.bookTickers);
-  if (includeWatchlist) {
-    tickers.push(...state.watchlist
-      .filter((row) => (row.origins || ["candidate"]).includes("candidate") && !book.has(row.ticker))
-      .map((row) => row.ticker));
-  }
-  const unique = [...new Set(tickers)].filter((ticker) => !hasSelection || selected.has(ticker));
-  return { tickers: unique };
+function updateRunDraft(patch) {
+  state.runDraft = RunDraft.setOptions(state.runDraft, patch);
+  clearRunValidation();
+  renderRunComposer();
 }
 
-function updateRunWarn() {
-  const selectedCount = selectedTickers().length;
-  $("#runSelectionSummary").textContent = `${selectedCount} ticker${selectedCount === 1 ? "" : "s"} selected. Empty means all applicable positions when agents run.`;
-  const agents = $("#optRunAgents").checked;
-  const watchAgents = $("#optWatchlist").checked;
-  const nollm = $("#optNoLLM").checked;
-  const scope = freshAnalysisScope(agents, watchAgents, selectedTickers());
-  const n = scope.tickers.length;
-  let msg;
-  if (nollm) {
-    msg = "Snapshot only (-NoLLM): no model calls, free, usually under a minute. Watchlist agent runs are also suppressed.";
-  } else if (n > 0) {
-    msg = `Agent runs: ~${n} ticker(s) × ~2.5 min ≈ ${Math.round(n * 2.5)} minutes, plus OpenRouter fees. The fund manager step after that is 5 calls.`;
+// The scenario cards only edit the local draft. They never preview or navigate.
+$("#runScenarios").addEventListener("change", (event) => {
+  const input = event.target.closest("input[name='runScenario']");
+  if (!input) return;
+  state.runDraft = RunDraft.setMode(state.runDraft, input.value);
+  clearRunValidation();
+  renderRunComposer();
+  $("#runStatus").textContent = `New run set to ${RunDraft.modes[input.value].title}. Your selections are kept.`;
+  renderRunResult("");
+});
+
+$("#runComposer").addEventListener("change", (event) => {
+  const input = event.target;
+  if (input.matches("input[data-run-ticker]")) {
+    state.runDraft = RunDraft.toggleTicker(state.runDraft, input.value, input.dataset.runSource);
+  } else if (input.matches("input[data-run-sector]")) {
+    state.runDraft = RunDraft.toggleSector(state.runDraft, input.value);
+  } else if (input.name === "runDateMode") {
+    state.runDraft = RunDraft.setOptions(state.runDraft, { dateMode: input.value });
+  } else if (input.id === "runDateInput") {
+    state.runDraft = RunDraft.setOptions(state.runDraft, { date: input.value });
+  } else if (input.id === "runEconomicData") {
+    state.runDraft = RunDraft.setOptions(state.runDraft, { includeEconomicData: input.checked });
+  } else if (input.id === "runSince") {
+    state.runDraft = RunDraft.setOptions(state.runDraft, { since: input.value });
+  } else return;
+  clearRunValidation();
+  renderRunComposer();
+});
+
+$("#runComposer").addEventListener("click", (event) => {
+  const bulk = event.target.closest("[data-run-bulk]");
+  if (bulk) {
+    const eligible = runEligibility();
+    if (bulk.dataset.runBulk === "clear") {
+      state.runDraft = RunDraft.setTickerSelection(state.runDraft, [], {});
+    } else if (bulk.dataset.runBulk === "all") {
+      state.runDraft = RunDraft.setTickerSelection(state.runDraft, [...eligible.holdings, ...eligible.candidates], eligible.groups);
+    } else {
+      const names = bulk.dataset.runBulk === "holding" ? eligible.holdings : eligible.candidates;
+      state.runDraft = RunDraft.mergeTickerSelection(state.runDraft, names, eligible.groups);
+    }
   } else {
-    msg = "Fund manager only: 5 calls (draft, aggressive, conservative, neutral, final), about 9 minutes. Conservative is Opus; neutral is Luna. The last committee with that Opus seat was about $1.20.";
+    const remove = event.target.closest("[data-remove-run-ticker]");
+    if (!remove) return;
+    state.runDraft = RunDraft.toggleTicker(state.runDraft, remove.dataset.removeRunTicker);
   }
-  msg += " Exact stages, tickers, configured seats, and the budget estimate are previewed before confirmation; estimates are not provider spending caps.";
-  $("#runWarnText").textContent = msg;
+  clearRunValidation();
+  renderRunComposer();
+});
+
+async function handoffWatchlistRefresh() {
+  const tickers = [...new Set((state.refreshTickers || []).map((ticker) => String(ticker).toUpperCase()))];
+  if (!tickers.length) return;
+  await setTab("runs");
+  const eligible = runEligibility();
+  state.runDraft = RunDraft.setMode(state.runDraft, "analyze-review");
+  state.runDraft = RunDraft.setTickerSelection(state.runDraft, tickers, eligible.groups);
+  state.refreshTickers = [];
+  syncRefreshButton();
+  clearRunValidation();
+  renderRunComposer();
+  $("#runStart").scrollIntoView({ behavior: "smooth", block: "center" });
+  renderRunResult("Review the selected fresh research scope, then choose Start run to prepare it.");
 }
 
-["optRunAgents", "optAnlOnly", "optNoLLM", "optWatchlist"].forEach((id) => $(`#${id}`).addEventListener("change", updateRunWarn));
-
-$("#selBook").addEventListener("click", () => {
-  $$("#tickerGrid input").forEach((i) => {
-    i.checked = state.bookTickers.includes(i.value);
-    i.closest(".ar-ticker-chip").classList.toggle("on", i.checked);
-  });
-  updateRunWarn();
-});
-$("#selWatch").addEventListener("click", () => {
-  const book = new Set(state.bookTickers);
-  const w = new Set(state.watchlist
-    .filter((x) => (x.origins || ["candidate"]).includes("candidate") && !book.has(x.ticker))
-    .map((x) => x.ticker));
-  $$("#tickerGrid input").forEach((i) => {
-    i.checked = w.has(i.value);
-    i.closest(".ar-ticker-chip").classList.toggle("on", i.checked);
-  });
-  updateRunWarn();
-});
-$("#selAll").addEventListener("click", () => {
-  $("#optRunAgents").checked = true;
-  $("#optWatchlist").checked = Boolean(state.flags.IncludeWatchlist);
-  $$("#tickerGrid input").forEach((input) => {
-    input.checked = true;
-    input.closest(".ar-ticker-chip").classList.add("on");
-  });
-  updateRunWarn();
-});
-$("#selNone").addEventListener("click", () => {
-  $$("#tickerGrid input").forEach((i) => { i.checked = false; i.closest(".ar-ticker-chip").classList.remove("on"); });
-  updateRunWarn();
-});
-$("#selEtfs").addEventListener("click", () => {
-  const etfs = new Set(state.watchlist.filter((x) => x.instrument_type === "ETF").map((x) => x.ticker));
-  $$("#tickerGrid input").forEach((i) => {
-    i.checked = etfs.has(i.value);
-    i.closest(".ar-ticker-chip").classList.toggle("on", i.checked);
-  });
-  updateRunWarn();
-});
+$("#wlRefreshSelected").addEventListener("click", handoffWatchlistRefresh);
+renderRunComposer();
 
 function statusMarkup(status) {
   const s = status || "";
@@ -1269,133 +1358,153 @@ async function pollLog() {
   } catch (_) { /* ignore transient */ }
 }
 
-$("#btnStartRun").addEventListener("click", async () => {
-  const selected = selectedTickers();
-  const analysisOnly = $("#optAnlOnly").checked;
-  if (analysisOnly && !selected.length) return showToast("Select one or more tickers for ANL-only", "warning");
-  if (analysisOnly && $("#optNoLLM").checked) return showToast("ANL-only requires paid analysis; turn off Snapshot only", "warning");
-  const held = new Set(state.bookTickers);
-  const body = {
-    run_agents: analysisOnly ? selected.some((ticker) => held.has(ticker)) : $("#optRunAgents").checked,
-    analysis_only: analysisOnly,
-    no_llm: $("#optNoLLM").checked,
-    include_risk: $("#optRisk").checked,
-    no_macro: $("#optNoMacro").checked,
-    include_watchlist: analysisOnly
-      ? selected.some((ticker) => !held.has(ticker) && state.watchlist.some((row) => row.ticker === ticker && (row.origins || ["candidate"]).includes("candidate")))
-      : $("#optWatchlist").checked,
-    analysis_date: $("#optDate").value || "",
-    since: $("#optSince").value || "",
-    tickers: selected,
-    confirm: false,
-  };
-  try {
-    const preview = await api("/api/runs/manifest", { method: "POST", body: JSON.stringify(body) });
-    body.manifest_sha256 = preview.manifest_sha256;
-    const manifest = preview.manifest || {};
-    const stages = (manifest.stages || []).map((stage) => stage.name).join(" → ") || "No paid stages";
-    const estimate = manifest.cost_estimate || {};
-    const spending = manifest.spending_controls || {};
-    const seats = new Map();
-    const collectSeats = (value) => {
-      if (!value || typeof value !== "object") return;
-      if (Array.isArray(value)) return value.forEach(collectSeats);
-      if (value.id && value.model && value.pipeline) seats.set(value.id, `${value.label}: ${value.model} (${value.max_tokens_setting || (value.max_tokens ? `${value.max_tokens} max tokens` : "runtime default")})`);
-      Object.values(value).forEach(collectSeats);
-    };
-    collectSeats(manifest.stages);
-    const all = (manifest.portfolio_review_context_tickers || []).join(", ") || "none";
-    const paidScope = (manifest.fresh_analysis_tickers || []).join(", ") || "none";
-    const reportSources = Object.entries(manifest.portfolio_report_inputs || {})
-      .map(([ticker, source]) => `${ticker}: ${source.status}${source.analysis_date ? ` (${source.analysis_date})` : ""}`)
-      .join(", ") || "none";
-    const priceInventory = manifest.model_price_inventory || {};
-    const rates = (priceInventory.rates || []).map((rate) =>
-      `${rate.id}: $${rate.usd_per_mtok_in ?? "?"}/$${rate.usd_per_mtok_out ?? "?"} per million input/output tokens`).join("; ") || "No local rate rows";
-    $("#confirmText").style.whiteSpace = "pre-line";
-    $("#confirmText").textContent = [
-      `Mode: ${manifest.mode}. Fresh ticker scope: ${paidScope}.`,
-      `Portfolio review context: ${all}.`,
-      `Existing report inputs: ${reportSources}.`,
-      `Ordered stages: ${stages}.`,
-      `Configured seats: ${[...seats.values()].join("; ") || "No model seats"}.`,
-      `Local rate inventory (${priceInventory.pricing_note || "no pricing note"}): ${rates}.`,
-      `Configured budget-planning placeholder: $${Number(estimate.amount_usd || 0).toFixed(2)} (not model-priced and not a provider price quote). Weekly allowance check: ${spending.weekly_budget_enabled === false ? "disabled" : `$${Number(spending.weekly_budget_usd || 0).toFixed(2)}`}; already spent: $${Number(spending.spent_usd || 0).toFixed(2)}. Check actual provider usage and cost after the call.`,
-      estimate.note || "",
-      manifest.model_price_inventory?.warning || "",
-      `Outputs: ${manifest.outputs?.ticker_reports || ""} ${manifest.outputs?.portfolio_report || ""}`,
-    ].filter(Boolean).join("\n");
-    state.pendingTheme = null;
-    state.pendingRemove = null;
-    state.pendingRun = body;
-    openConfirm();
-  } catch (e) {
-    showToast(e.message, "danger");
-  }
-});
-
-function configureScenario({ agents = false, analysisOnly = false, noLlm = false, watchlist = false, selection = "clear" } = {}) {
-  $("#optRunAgents").checked = agents;
-  $("#optAnlOnly").checked = analysisOnly;
-  $("#optNoLLM").checked = noLlm;
-  $("#optWatchlist").checked = watchlist;
-  $("#optNoMacro").checked = false;
-  $("#optDate").value = "";
-  $("#optSince").value = "";
-  if (selection === "clear") $("#selNone").click();
-  updateRunWarn();
+function showRunSubmissionError(message) {
+  const error = String(message || "The preview could not be prepared.");
+  $("#runErrors").hidden = false;
+  $("#runErrorList").innerHTML = `<li>${esc(error)} Review the draft and choose Start run to try again.</li>`;
+  $("#runErrors").focus();
+  renderRunResult(error, true);
 }
 
-$("#tab-runs").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-run-scenario]");
-  if (!button) return;
-  switch (button.dataset.runScenario) {
-    case "snapshot":
-      configureScenario({ noLlm: true });
-      $("#btnStartRun").click();
-      break;
-    case "screen":
-      setTab("themes");
-      $("#btnScreen").click();
-      break;
-    case "scout":
-      setTab("themes");
-      $("#optScoutLlm").checked = true;
-      $("#btnScout").click();
-      break;
-    case "analyze":
-      if (!selectedTickers().length) {
-        showToast("Select one or more tickers in the New run section first.", "warning");
-        $("#tickerGrid").scrollIntoView({ behavior: "smooth", block: "center" });
-        return;
-      }
-      configureScenario({ agents: true, analysisOnly: true, selection: "preserve" });
-      $("#btnStartRun").click();
-      break;
-    case "analyze-review":
-      if (!selectedTickers().length) {
-        showToast("Select one or more tickers in the New run section first.", "warning");
-        $("#tickerGrid").scrollIntoView({ behavior: "smooth", block: "center" });
-        return;
-      }
-      {
-        const selected = selectedTickers();
-        const held = new Set(state.bookTickers);
-        const hasHeld = selected.some((ticker) => held.has(ticker));
-        const hasCandidate = selected.some((ticker) => !held.has(ticker)
-          && state.watchlist.some((row) => row.ticker === ticker && (row.origins || ["candidate"]).includes("candidate")));
-        configureScenario({ agents: hasHeld, watchlist: hasCandidate, selection: "preserve" });
-      }
-      $("#btnStartRun").click();
-      break;
-    case "fund":
-      configureScenario();
-      $("#btnStartRun").click();
-      break;
-    default:
-      break;
+function isCurrentRunDraftPreview(draftRevision, previewGeneration) {
+  return state.tab === "runs"
+    && state.runDraft.revision === draftRevision
+    && runDraftPreviewGeneration === previewGeneration;
+}
+
+function discardStaleRunDraftPreview(message) {
+  if (state.tab === "runs") renderRunResult(message);
+  return false;
+}
+
+async function prepareRunPreview(body, { draftRevision, previewGeneration } = {}) {
+  const preview = await api("/api/runs/manifest", { method: "POST", body: JSON.stringify(body) });
+  if (draftRevision != null && !isCurrentRunDraftPreview(draftRevision, previewGeneration)) {
+    return discardStaleRunDraftPreview("The draft or page changed while preparing the review. Return to Runs, check the scope, and choose Start run again.");
   }
-});
+  const manifest = preview.manifest || {};
+  const stages = (manifest.stages || []).map((stage) => stage.name).join(" → ") || "No paid stages";
+  const estimate = manifest.cost_estimate || {};
+  const spending = manifest.spending_controls || {};
+  const seats = new Map();
+  const collectSeats = (value) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) return value.forEach(collectSeats);
+    if (value.id && value.model && value.pipeline) seats.set(value.id, `${value.label}: ${value.model} (${value.max_tokens_setting || (value.max_tokens ? `${value.max_tokens} max tokens` : "runtime default")})`);
+    Object.values(value).forEach(collectSeats);
+  };
+  collectSeats(manifest.stages);
+  const all = (manifest.portfolio_review_context_tickers || []).join(", ") || "none";
+  const paidScope = (manifest.fresh_analysis_tickers || []).join(", ") || "none";
+  const reportSources = Object.entries(manifest.portfolio_report_inputs || {})
+    .map(([ticker, source]) => `${ticker}: ${source.status}${source.analysis_date ? ` (${source.analysis_date})` : ""}`)
+    .join(", ") || "none";
+  const priceInventory = manifest.model_price_inventory || {};
+  const rates = (priceInventory.rates || []).map((rate) =>
+    `${rate.id}: $${rate.usd_per_mtok_in ?? "?"}/$${rate.usd_per_mtok_out ?? "?"} per million input/output tokens`).join("; ") || "No local rate rows";
+  $("#confirmText").style.whiteSpace = "pre-line";
+  $("#confirmText").textContent = [
+    `Mode: ${manifest.mode}. Fresh ticker scope: ${paidScope}.`,
+    `Portfolio review context: ${all}.`,
+    `Existing report inputs: ${reportSources}.`,
+    `Ordered stages: ${stages}.`,
+    `Configured seats: ${[...seats.values()].join("; ") || "No model seats"}.`,
+    `Local rate inventory (${priceInventory.pricing_note || "no pricing note"}): ${rates}.`,
+    `Configured budget-planning placeholder: $${Number(estimate.amount_usd || 0).toFixed(2)} (not model-priced and not a provider price quote). Weekly allowance check: ${spending.weekly_budget_enabled === false ? "disabled" : `$${Number(spending.weekly_budget_usd || 0).toFixed(2)}`}; already spent: $${Number(spending.spent_usd || 0).toFixed(2)}. Check actual provider usage and cost after the call.`,
+    estimate.note || "",
+    manifest.model_price_inventory?.warning || "",
+    `Outputs: ${manifest.outputs?.ticker_reports || ""} ${manifest.outputs?.portfolio_report || ""}`,
+  ].filter(Boolean).join("\n");
+  const pending = { ...body, manifest_sha256: preview.manifest_sha256 };
+  state.pendingTheme = null;
+  state.pendingRemove = null;
+  state.pendingRun = Object.freeze(pending);
+  state.runReviewFocusOnClose = draftRevision != null;
+  openConfirm();
+  renderRunResult("Review ready. Confirm the scope and consent before starting.");
+  return true;
+}
+
+let themePreviewInFlight = false;
+
+async function prepareThemePreview(mode, includeLlm, sectors, { draftRevision, previewGeneration } = {}) {
+  if (themePreviewInFlight) return false;
+  themePreviewInFlight = true;
+  try {
+    const selectedSectors = [...sectors];
+    if (!selectedSectors.length || selectedSectors.length > 8) throw new Error("Choose between one and eight discovery sectors.");
+    const body = { mode, include_llm: Boolean(includeLlm), sectors: selectedSectors, single_call: Boolean(includeLlm), confirm: false };
+    const reviewed = await api("/api/theme-scout/manifest", { method: "POST", body: JSON.stringify(body) });
+    if (draftRevision != null && !isCurrentRunDraftPreview(draftRevision, previewGeneration)) {
+      return discardStaleRunDraftPreview("The draft or page changed while preparing the review. Return to Runs, check the sectors, and choose Start run again.");
+    }
+    const manifest = reviewed.manifest || {};
+    const scope = manifest.model_scope || {};
+    const spending = manifest.spending_controls || {};
+    const names = (values) => Array.isArray(values) && values.length ? values.join(", ") : "none";
+    const selectedEtfs = scope.selected_sector_etfs || [];
+    const sectorsInScope = selectedEtfs.map((item) => `${item.ticker} (${item.sector})`).join(", ") || selectedSectors.join(", ");
+    const discovery = scope.dynamic_discovery || {};
+    const scopeDetails = [
+      `Selected sector ETFs: ${sectorsInScope}`,
+      `Current holdings in model context: ${names(scope.holdings)}`,
+      `Saved watchlist candidates: ${names(scope.saved_candidates)}`,
+      `Possible new stock symbols: up to ${discovery.max_stock_tickers_per_sector || 20} per sector, at most ${discovery.maximum_stock_tickers || 0} total. The free screen chooses these symbols before the model call; their names are not known at confirmation and are recorded in the run report.`,
+    ].join("\n");
+    const estimate = mode === "screen"
+      ? "The screen is free and does not edit the watchlist."
+      : includeLlm
+        ? `The scout uses the configured model across ${selectedSectors.length} selected sector(s). Current estimate: ${moneyLevel(manifest.cost_estimate?.amount_usd) || "unavailable"}; this is not a spending cap. Weekly check: ${spending.weekly_budget_enabled === false ? "disabled" : `enabled at ${moneyLevel(spending.weekly_budget_usd) || "the configured limit"}`} (already spent ${moneyLevel(spending.spent_usd) || "$0.00"}). Check actual provider cost after the call.\n\n${manifest.cost_estimate?.note || ""}`
+        : "The scout pack will not call a paid model. The watchlist is not edited.";
+    $("#confirmText").textContent = `${estimate}\n\n${scopeDetails}`;
+    $("#confirmText").style.whiteSpace = "pre-line";
+    state.pendingRun = null;
+    state.pendingRemove = null;
+    state.pendingTheme = Object.freeze({ ...body, manifest_sha256: reviewed.manifest_sha256 });
+    state.runReviewFocusOnClose = draftRevision != null;
+    openConfirm();
+    if (draftRevision != null) renderRunResult("Review ready. Confirm the scope and consent before starting.");
+    return true;
+  } catch (error) {
+    if (draftRevision != null && isCurrentRunDraftPreview(draftRevision, previewGeneration)) showRunSubmissionError(error.message);
+    else if (draftRevision != null) discardStaleRunDraftPreview("The draft or page changed while preparing the review. Return to Runs, check the sectors, and choose Start run again.");
+    else showToast(error.message, "danger");
+    return false;
+  } finally {
+    themePreviewInFlight = false;
+  }
+}
+
+async function startRunDraft() {
+  if (runPreviewInFlight) return;
+  clearRunValidation();
+  renderRunResult("");
+  const eligibility = runEligibility();
+  const prepared = RunDraft.request(state.runDraft, eligibility.groups);
+  if (prepared.errors.length) {
+    showRunValidation(prepared.errors);
+    return;
+  }
+  const revision = state.runDraft.revision;
+  const previewGeneration = runDraftPreviewGeneration;
+  runPreviewInFlight = true;
+  renderRunComposer();
+  try {
+    if (prepared.family === "theme-scout") {
+      await prepareThemePreview(prepared.body.mode, prepared.body.include_llm, prepared.body.sectors, { draftRevision: revision, previewGeneration });
+    } else {
+      await prepareRunPreview(prepared.body, { draftRevision: revision, previewGeneration });
+    }
+  } catch (error) {
+    if (isCurrentRunDraftPreview(revision, previewGeneration)) showRunSubmissionError(error.message);
+    else discardStaleRunDraftPreview("The draft or page changed while preparing the review. Return to Runs, check the scope, and choose Start run again.");
+  } finally {
+    runPreviewInFlight = false;
+    renderRunComposer();
+  }
+}
+
+$("#runStart").addEventListener("click", startRunDraft);
 
 function isPendingPaid() {
   if (state.pendingRemove || state.pendingAgentSave) return false;
@@ -1453,12 +1562,15 @@ function openConfirm() {
 
 $("#confirmCancel").addEventListener("click", () => $("#confirmModal").close());
 $("#confirmModal").addEventListener("close", () => {
+  const returnToRunStart = state.runReviewFocusOnClose;
+  state.runReviewFocusOnClose = false;
   if (closingFromConfirm) return;
   state.pendingRun = null;
   state.pendingTheme = null;
   state.pendingRemove = null;
   state.pendingAgentSave = false;
   state.pendingSettingsSave = false;
+  if (returnToRunStart) $("#runStart").focus();
 });
 $("#confirmConsent").addEventListener("change", (e) => {
   if (!$("#confirmConsentWrap").classList.contains("hidden")) $("#confirmGo").disabled = !e.target.checked;
@@ -1475,6 +1587,7 @@ $("#confirmGo").addEventListener("click", async () => {
   state.pendingRemove = null;
   state.pendingAgentSave = false;
   state.pendingSettingsSave = false;
+  state.runReviewFocusOnClose = false;
   closingFromConfirm = true;
   $("#confirmModal").close();
   closingFromConfirm = false;
@@ -1544,42 +1657,7 @@ async function loadThemes() {
 async function queueThemeRun(mode) {
   const includeLlm = mode === "weekly" && $("#optScoutLlm").checked;
   const sectors = selectedScoutSectors();
-  if (!sectors.length || sectors.length > 8) {
-    showToast("Choose one to eight discovery sectors", "warning");
-    return;
-  }
-  const request = { mode, include_llm: includeLlm, sectors, single_call: includeLlm, confirm: false };
-  try {
-    const reviewed = await api("/api/theme-scout/manifest", { method: "POST", body: JSON.stringify(request) });
-    const manifest = reviewed.manifest || {};
-    state.pendingRun = null;
-    state.pendingRemove = null;
-    state.pendingTheme = { ...request, manifest_sha256: reviewed.manifest_sha256 };
-    const model = manifest.model || {};
-    const scope = manifest.model_scope || {};
-    const spending = manifest.spending_controls || {};
-    const tickers = (values) => Array.isArray(values) && values.length ? values.join(", ") : "none";
-  const selectedSectors = scope.selected_sector_etfs || [];
-  const sectorsInScope = selectedSectors
-      .map((item) => `${item.ticker} (${item.sector})`).join(", ") || "none";
-    const discovery = scope.dynamic_discovery || {};
-    const scopeDetails = [
-      `Selected sector ETFs: ${sectorsInScope}`,
-      `Current holdings in model context: ${tickers(scope.holdings)}`,
-      `Saved watchlist candidates: ${tickers(scope.saved_candidates)}`,
-      `Possible new stock symbols: up to ${discovery.max_stock_tickers_per_sector || 20} per sector, at most ${discovery.maximum_stock_tickers || 0} total. The free screen chooses these symbols before the model call; their names are not known at confirmation and are recorded in the run report.`,
-    ].join("\n");
-    const est = mode === "screen"
-      ? "Daily screen is free and does not edit the watchlist. A few minutes of price and earnings lookups."
-      : (includeLlm
-    ? `One ${model.model || "configured scout model"} request across ${selectedSectors.length} sector(s), max output ${model.max_tokens ?? "runtime default"} tokens. Wider sector scope can produce an incomplete response; the report flags missing rankings, and no automatic retry or watchlist edit occurs. Model-based estimate: ${moneyLevel(manifest.cost_estimate?.amount_usd) || "unavailable"}. This is not a spending cap. Weekly spending check: ${spending.weekly_budget_enabled === false ? "disabled" : `enabled at ${moneyLevel(spending.weekly_budget_usd) || "configured limit"}`} (already spent ${moneyLevel(spending.spent_usd) || "$0.00"}). Check actual provider cost after this call.\n\n${manifest.cost_estimate?.note || ""}\n\n${scopeDetails}`
-        : "Weekly pack without the scout model call. Free. The watchlist is not edited.");
-    $("#confirmText").textContent = est;
-    $("#confirmText").style.whiteSpace = "pre-line";
-    openConfirm();
-  } catch (e) {
-    showToast(e.message, "danger");
-  }
+  return prepareThemePreview(mode, includeLlm, sectors);
 }
 
 $("#btnScreen").addEventListener("click", () => queueThemeRun("screen"));

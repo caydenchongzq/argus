@@ -1,0 +1,908 @@
+{
+  "base_url": "http://127.0.0.1:41887",
+  "checks": [
+    {
+      "name": "app_boots_without_js_errors",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "runs_tab_available",
+      "passed": true,
+      "detail": "new run scenario radio fieldset present"
+    },
+    {
+      "name": "six_scenarios_present",
+      "passed": true,
+      "detail": "found 6"
+    },
+    {
+      "name": "snapshot_only_relevant_controls_visible",
+      "passed": true,
+      "detail": "expected=(True, False, False, False, True, True), actual=(True, False, False, False, True, True)"
+    },
+    {
+      "name": "snapshot_inactive_change_notice_hidden",
+      "passed": true,
+      "detail": "no source change notice when no sources changed"
+    },
+    {
+      "name": "screen_only_relevant_controls_visible",
+      "passed": true,
+      "detail": "expected=(False, False, False, True, False, False), actual=(False, False, False, True, False, False)"
+    },
+    {
+      "name": "screen_inactive_change_notice_hidden",
+      "passed": true,
+      "detail": "no source change notice when no sources changed"
+    },
+    {
+      "name": "scout_only_relevant_controls_visible",
+      "passed": true,
+      "detail": "expected=(False, False, False, True, False, False), actual=(False, False, False, True, False, False)"
+    },
+    {
+      "name": "scout_inactive_change_notice_hidden",
+      "passed": true,
+      "detail": "no source change notice when no sources changed"
+    },
+    {
+      "name": "analyze_only_relevant_controls_visible",
+      "passed": true,
+      "detail": "expected=(False, False, True, False, True, False), actual=(False, False, True, False, True, False)"
+    },
+    {
+      "name": "analyze_inactive_change_notice_hidden",
+      "passed": true,
+      "detail": "no source change notice when no sources changed"
+    },
+    {
+      "name": "analyze-review_only_relevant_controls_visible",
+      "passed": true,
+      "detail": "expected=(False, True, True, False, True, True), actual=(False, True, True, False, True, True)"
+    },
+    {
+      "name": "analyze-review_inactive_change_notice_hidden",
+      "passed": true,
+      "detail": "no source change notice when no sources changed"
+    },
+    {
+      "name": "fund_only_relevant_controls_visible",
+      "passed": true,
+      "detail": "expected=(False, True, False, False, True, True), actual=(False, True, False, False, True, True)"
+    },
+    {
+      "name": "fund_inactive_change_notice_hidden",
+      "passed": true,
+      "detail": "no source change notice when no sources changed"
+    },
+    {
+      "name": "six_mode_changes_are_draft_only",
+      "passed": true,
+      "detail": "calls=[]; dialogs=[]; scroll=0->0"
+    },
+    {
+      "name": "mode_selection_keeps_runs_tab",
+      "passed": true,
+      "detail": "scenario selection must not leave Runs"
+    },
+    {
+      "name": "keyboard_radio_navigation",
+      "passed": true,
+      "detail": "arrow navigation changes only the local scenario draft"
+    },
+    {
+      "name": "empty_research_is_inline_and_offline",
+      "passed": true,
+      "detail": "calls=[], focused=runErrors"
+    },
+    {
+      "name": "manual_nonheld_candidate_visible",
+      "passed": true,
+      "detail": "available=['AAA', 'BBB', 'CCC', 'DDD']"
+    },
+    {
+      "name": "ticker_selection_survives_mode_changes",
+      "passed": true,
+      "detail": "selected=['AAA', 'DDD']"
+    },
+    {
+      "name": "valid_scope_has_no_stale_warning",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "fund_manifest_only_after_start",
+      "passed": true,
+      "detail": "calls=['/api/runs/manifest']"
+    },
+    {
+      "name": "fund_uses_only_relevant_options",
+      "passed": true,
+      "detail": "{\"run_agents\": false, \"analysis_only\": false, \"no_llm\": false, \"include_risk\": false, \"no_macro\": true, \"include_watchlist\": false, \"analysis_date\": \"2026-11-18\", \"since\": \"2026-11-01\", \"tickers\": [], \"confirm\": false}"
+    },
+    {
+      "name": "cancel_closes_review",
+      "passed": true,
+      "detail": "dialog closed"
+    },
+    {
+      "name": "cancel_restores_start_focus",
+      "passed": true,
+      "detail": "active=runStart"
+    },
+    {
+      "name": "cancel_preserves_draft",
+      "passed": true,
+      "detail": "fund mode and since date retained"
+    },
+    {
+      "name": "scout_uses_only_selected_sectors",
+      "passed": true,
+      "detail": "{\"mode\": \"weekly\", \"include_llm\": true, \"sectors\": [\"XLV\", \"XLP\"], \"single_call\": true, \"confirm\": false}"
+    },
+    {
+      "name": "scout_omits_hidden_fields",
+      "passed": true,
+      "detail": "{\"mode\": \"weekly\", \"include_llm\": true, \"sectors\": [\"XLV\", \"XLP\"], \"single_call\": true, \"confirm\": false}"
+    },
+    {
+      "name": "paid_confirmation_requires_consent",
+      "passed": true,
+      "detail": "paid modal requires explicit consent"
+    },
+    {
+      "name": "scout_escape_restores_start_focus",
+      "passed": true,
+      "detail": "active=runStart"
+    },
+    {
+      "name": "paid_cancel_returns_without_start",
+      "passed": true,
+      "detail": "only manifest requested"
+    },
+    {
+      "name": "research_manifest_exact_scope",
+      "passed": true,
+      "detail": "{\"run_agents\": true, \"analysis_only\": false, \"no_llm\": false, \"include_risk\": false, \"no_macro\": true, \"include_watchlist\": true, \"analysis_date\": \"2026-11-18\", \"since\": \"2026-11-01\", \"tickers\": [\"AAA\", \"DDD\"], \"confirm\": false}"
+    },
+    {
+      "name": "research_manifest_hash_frozen",
+      "passed": true,
+      "detail": "manifest preview captured before confirmation"
+    },
+    {
+      "name": "research_confirm_requires_consent",
+      "passed": true,
+      "detail": "paid research confirmation disabled until consent"
+    },
+    {
+      "name": "confirmed_run_is_fake_and_hash_bound",
+      "passed": true,
+      "detail": "{\"run_agents\": true, \"analysis_only\": false, \"no_llm\": false, \"include_risk\": false, \"no_macro\": true, \"include_watchlist\": true, \"analysis_date\": \"2026-11-18\", \"since\": \"2026-11-01\", \"tickers\": [\"AAA\", \"DDD\"], \"confirm\": true, \"manifest_sha256\": \"synthetic-run-hash\"}"
+    },
+    {
+      "name": "stale_preview_discarded_after_draft_edit",
+      "passed": true,
+      "detail": "calls=['/api/runs/manifest'], modal=False, result=The draft or page changed while preparing the review. Return to Runs, check the scope, and choose Start run again."
+    },
+    {
+      "name": "duplicate_start_has_single_preview",
+      "passed": true,
+      "detail": "manifest count=1"
+    },
+    {
+      "name": "escape_closes_review_restores_focus",
+      "passed": true,
+      "detail": "active=runStart, calls=['/api/runs/manifest']"
+    },
+    {
+      "name": "late_preview_ignored_after_tab_leave_return",
+      "passed": true,
+      "detail": "held=True, modal=False, calls=['/api/runs/manifest', '/api/portfolio', '/api/portfolio', '/api/watchlist', '/api/runs', '/api/spend', '/api/settings']"
+    },
+    {
+      "name": "late_scout_preview_ignored_after_tab_leave_return",
+      "passed": true,
+      "detail": "held=True, modal=False, calls=['/api/theme-scout/manifest', '/api/portfolio', '/api/portfolio', '/api/watchlist', '/api/runs', '/api/spend', '/api/settings']"
+    },
+    {
+      "name": "no_horizontal_overflow_1280",
+      "passed": true,
+      "detail": "scrollWidth=1280, clientWidth=1280, offenders=[]"
+    },
+    {
+      "name": "no_run_form_overflow_1280",
+      "passed": true,
+      "detail": "form overflow=False"
+    },
+    {
+      "name": "no_horizontal_overflow_768",
+      "passed": true,
+      "detail": "scrollWidth=768, clientWidth=768, offenders=[]"
+    },
+    {
+      "name": "no_run_form_overflow_768",
+      "passed": true,
+      "detail": "form overflow=False"
+    },
+    {
+      "name": "no_horizontal_overflow_375",
+      "passed": true,
+      "detail": "scrollWidth=375, clientWidth=375, offenders=[{'tag': 'BUTTON', 'id': '', 'cls': 'ar-tab', 'right': 449, 'left': 374, 'width': 75}, {'tag': 'BUTTON', 'id': '', 'cls': 'ar-tab', 'right': 506, 'left': 451, 'width': 55}, {'tag': 'BUTTON', 'id': '', 'cls': 'ar-tab', 'right': 576, 'left': 508, 'width': 68}, {'tag': 'DIV', 'id': 'toasts', 'cls': 'ar-toast-stack', 'right': 351, 'left': -9, 'width': 360}]"
+    },
+    {
+      "name": "no_run_form_overflow_375",
+      "passed": true,
+      "detail": "form overflow=False"
+    },
+    {
+      "name": "run_form_reflows_at_200_percent_equivalent",
+      "passed": true,
+      "detail": "form overflow=False"
+    },
+    {
+      "name": "reduced_motion_applied",
+      "passed": true,
+      "detail": "transition duration=0s, 0s, 0s"
+    },
+    {
+      "name": "run_controls_have_44px_targets",
+      "passed": true,
+      "detail": "[]"
+    },
+    {
+      "name": "critical_run_text_contrast_light",
+      "passed": true,
+      "detail": "[{\"label\": \"light\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Refresh prices & portfolio metrics\", \"fg\": \"rgb(15, 23, 42)\", \"bg\": \"rgb(236, 253, 245)\", \"ratio\": 16.95}, {\"label\": \"light\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Screen the market\", \"fg\": \"rgb(15, 23, 42)\", \"bg\": \"rgb(241, 245, 249)\", \"ratio\": 16.3}, {\"label\": \"light\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Find watchlist ideas\", \"fg\": \"rgb(15, 23, 42)\", \"bg\": \"rgb(241, 245, 249)\", \"ratio\": 16.3}, {\"label\": \"light\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Research selected tickers\", \"fg\": \"rgb(15, 23, 42)\", \"bg\": \"rgb(241, 245, 249)\", \"ratio\": 16.3}, {\"label\": \"light\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Research + portfolio review\", \"fg\": \"rgb(15, 23, 42)\", \"bg\": \"rgb(241, 245, 249)\", \"ratio\": 16.3}, {\"label\": \"light\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Review portfolio\", \"fg\": \"rgb(15, 23, 42)\", \"bg\": \"rgb(241, 245, 249)\", \"ratio\": 16.3}, {\"label\": \"light\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Update prices and calculated portfolio statis\", \"fg\": \"rgb(71, 85, 105)\", \"bg\": \"rgb(236, 253, 245)\", \"ratio\": 7.19}, {\"label\": \"light\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Refresh the market screen across selected dis\", \"fg\": \"rgb(71, 85, 105)\", \"bg\": \"rgb(241, 245, 249)\", \"ratio\": 6.92}, {\"label\": \"light\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Refresh the screen, then ask the scout for wa\", \"fg\": \"rgb(71, 85, 105)\", \"bg\": \"rgb(241, 245, 249)\", \"ratio\": 6.92}, {\"label\": \"light\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Create fresh research reports for the names y\", \"fg\": \"rgb(71, 85, 105)\", \"bg\": \"rgb(241, 245, 249)\", \"ratio\": 6.92}, {\"label\": \"light\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Refresh your selected ticker reports, then re\", \"fg\": \"rgb(71, 85, 105)\", \"bg\": \"rgb(241, 245, 249)\", \"ratio\": 6.92}, {\"label\": \"light\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Ask the fund manager to review your holdings \", \"fg\": \"rgb(71, 85, 105)\", \"bg\": \"rgb(241, 245, 249)\", \"ratio\": 6.92}, {\"label\": \"light\", \"selector\": \"#runStatus\", \"text\": \"New run set to Refresh prices & portfolio met\", \"fg\": \"rgb(91, 107, 130)\", \"bg\": \"rgb(255, 255, 255)\", \"ratio\": 5.43}, {\"label\": \"light\", \"selector\": \"#runStartHelp\", \"text\": \"Start run opens a review. Paid runs require y\", \"fg\": \"rgb(91, 107, 130)\", \"bg\": \"rgb(255, 255, 255)\", \"ratio\": 5.43}]"
+    },
+    {
+      "name": "critical_run_text_contrast_dark",
+      "passed": true,
+      "detail": "[{\"label\": \"dark\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Refresh prices & portfolio metrics\", \"fg\": \"rgb(226, 232, 240)\", \"bg\": \"rgb(15, 42, 34)\", \"ratio\": 12.39}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Screen the market\", \"fg\": \"rgb(226, 232, 240)\", \"bg\": \"rgb(26, 33, 50)\", \"ratio\": 13.03}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Find watchlist ideas\", \"fg\": \"rgb(226, 232, 240)\", \"bg\": \"rgb(26, 33, 50)\", \"ratio\": 13.03}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Research selected tickers\", \"fg\": \"rgb(226, 232, 240)\", \"bg\": \"rgb(26, 33, 50)\", \"ratio\": 13.03}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Research + portfolio review\", \"fg\": \"rgb(226, 232, 240)\", \"bg\": \"rgb(26, 33, 50)\", \"ratio\": 13.03}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario strong\", \"text\": \"Review portfolio\", \"fg\": \"rgb(226, 232, 240)\", \"bg\": \"rgb(26, 33, 50)\", \"ratio\": 13.03}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Update prices and calculated portfolio statis\", \"fg\": \"rgb(148, 163, 184)\", \"bg\": \"rgb(15, 42, 34)\", \"ratio\": 5.96}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Refresh the market screen across selected dis\", \"fg\": \"rgb(148, 163, 184)\", \"bg\": \"rgb(26, 33, 50)\", \"ratio\": 6.26}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Refresh the screen, then ask the scout for wa\", \"fg\": \"rgb(148, 163, 184)\", \"bg\": \"rgb(26, 33, 50)\", \"ratio\": 6.26}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Create fresh research reports for the names y\", \"fg\": \"rgb(148, 163, 184)\", \"bg\": \"rgb(26, 33, 50)\", \"ratio\": 6.26}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Refresh your selected ticker reports, then re\", \"fg\": \"rgb(148, 163, 184)\", \"bg\": \"rgb(26, 33, 50)\", \"ratio\": 6.26}, {\"label\": \"dark\", \"selector\": \".ar-run-scenario > span > span\", \"text\": \"Ask the fund manager to review your holdings \", \"fg\": \"rgb(148, 163, 184)\", \"bg\": \"rgb(26, 33, 50)\", \"ratio\": 6.26}, {\"label\": \"dark\", \"selector\": \"#runStatus\", \"text\": \"New run set to Refresh prices & portfolio met\", \"fg\": \"rgb(124, 139, 161)\", \"bg\": \"rgb(18, 24, 38)\", \"ratio\": 5.12}, {\"label\": \"dark\", \"selector\": \"#runStartHelp\", \"text\": \"Start run opens a review. Paid runs require y\", \"fg\": \"rgb(124, 139, 161)\", \"bg\": \"rgb(18, 24, 38)\", \"ratio\": 5.12}]"
+    },
+    {
+      "name": "no_unmocked_api_calls",
+      "passed": true,
+      "detail": "[]"
+    },
+    {
+      "name": "no_native_dialogs_on_scenario_selection",
+      "passed": true,
+      "detail": "[]"
+    }
+  ],
+  "passed": 54,
+  "failed": 0,
+  "failures": [],
+  "api_calls": [
+    {
+      "path": "/api/session",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/health",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/portfolio",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/portfolio",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/watchlist",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/spend",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/settings",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs/manifest",
+      "method": "POST",
+      "body": {
+        "run_agents": false,
+        "analysis_only": false,
+        "no_llm": false,
+        "include_risk": false,
+        "no_macro": true,
+        "include_watchlist": false,
+        "analysis_date": "2026-11-18",
+        "since": "2026-11-01",
+        "tickers": [],
+        "confirm": false
+      },
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://127.0.0.1:41887",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/theme-scout/manifest",
+      "method": "POST",
+      "body": {
+        "mode": "weekly",
+        "include_llm": true,
+        "sectors": [
+          "XLV",
+          "XLP"
+        ],
+        "single_call": true,
+        "confirm": false
+      },
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://127.0.0.1:41887",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs/manifest",
+      "method": "POST",
+      "body": {
+        "run_agents": true,
+        "analysis_only": false,
+        "no_llm": false,
+        "include_risk": false,
+        "no_macro": true,
+        "include_watchlist": true,
+        "analysis_date": "2026-11-18",
+        "since": "2026-11-01",
+        "tickers": [
+          "AAA",
+          "DDD"
+        ],
+        "confirm": false
+      },
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://127.0.0.1:41887",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs",
+      "method": "POST",
+      "body": {
+        "run_agents": true,
+        "analysis_only": false,
+        "no_llm": false,
+        "include_risk": false,
+        "no_macro": true,
+        "include_watchlist": true,
+        "analysis_date": "2026-11-18",
+        "since": "2026-11-01",
+        "tickers": [
+          "AAA",
+          "DDD"
+        ],
+        "confirm": true,
+        "manifest_sha256": "synthetic-run-hash"
+      },
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://127.0.0.1:41887",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/portfolio",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/watchlist",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/spend",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/settings",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs/manifest",
+      "method": "POST",
+      "body": {
+        "run_agents": false,
+        "analysis_only": false,
+        "no_llm": true,
+        "include_risk": false,
+        "no_macro": true,
+        "include_watchlist": false,
+        "analysis_date": "2026-11-18",
+        "since": "",
+        "tickers": [],
+        "confirm": false
+      },
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://127.0.0.1:41887",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs/manifest",
+      "method": "POST",
+      "body": {
+        "run_agents": false,
+        "analysis_only": false,
+        "no_llm": true,
+        "include_risk": false,
+        "no_macro": true,
+        "include_watchlist": false,
+        "analysis_date": "2026-11-18",
+        "since": "",
+        "tickers": [],
+        "confirm": false
+      },
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://127.0.0.1:41887",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs/manifest",
+      "method": "POST",
+      "body": {
+        "run_agents": false,
+        "analysis_only": false,
+        "no_llm": false,
+        "include_risk": false,
+        "no_macro": true,
+        "include_watchlist": false,
+        "analysis_date": "2026-11-18",
+        "since": "2026-11-01",
+        "tickers": [],
+        "confirm": false
+      },
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://127.0.0.1:41887",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs/manifest",
+      "method": "POST",
+      "body": {
+        "run_agents": false,
+        "analysis_only": false,
+        "no_llm": false,
+        "include_risk": false,
+        "no_macro": true,
+        "include_watchlist": false,
+        "analysis_date": "2026-11-18",
+        "since": "2026-11-01",
+        "tickers": [],
+        "confirm": false
+      },
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://127.0.0.1:41887",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/portfolio",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/portfolio",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/watchlist",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/spend",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/settings",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/theme-scout/manifest",
+      "method": "POST",
+      "body": {
+        "mode": "weekly",
+        "include_llm": true,
+        "sectors": [
+          "XLV",
+          "XLP"
+        ],
+        "single_call": true,
+        "confirm": false
+      },
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://127.0.0.1:41887",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/portfolio",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/portfolio",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/watchlist",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/runs",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/spend",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    },
+    {
+      "path": "/api/settings",
+      "method": "GET",
+      "body": {},
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "referer": "http://127.0.0.1:41887/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+        "x-argus-confirm": "synthetic-browser-token",
+        "sec-ch-ua": "\"HeadlessChrome\";v=\"159\", \"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"159\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Linux\""
+      }
+    }
+  ],
+  "js_errors": [],
+  "screenshots": [
+    "/tmp/argus-run-ui-independent-browser/runs-paid-review.png",
+    "/tmp/argus-run-ui-independent-browser/runs-desktop.png",
+    "/tmp/argus-run-ui-independent-browser/runs-tablet.png",
+    "/tmp/argus-run-ui-independent-browser/runs-mobile.png",
+    "/tmp/argus-run-ui-independent-browser/runs-dark.png"
+  ],
+  "note": "All /api requests are intercepted and fulfilled from synthetic fixtures. No backend is started."
+}
