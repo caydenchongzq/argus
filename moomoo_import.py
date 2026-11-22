@@ -1,7 +1,6 @@
 """Read-only Moomoo Singapore adapter for US stock account snapshots.
 
-The SDK is optional. This module deliberately exposes no trade/order methods and
-does not treat Moomoo cash or buying-power fields as verified USD cash.
+The SDK is optional. This module exposes read-only positions and USD cash.
 """
 from __future__ import annotations
 
@@ -138,11 +137,15 @@ def read_snapshot(client, account_id: str, account_type: str = "STOCK") -> dict[
         raise
     except Exception as exc:
         raise MoomooImportError("Moomoo position refresh failed; no portfolio changes were made") from exc
+    cash = None
     try:
-        # Query for freshness/diagnostics only. Moomoo's USD cash denomination is
-        # not established for securities accounts, so these values are discarded.
+        # The SDK maps us_cash from the USD entry in the per-currency cash list.
+        # The generic cash field is reported in the display currency.
         currency = getattr(getattr(moo, "Currency", object), "USD", "USD")
-        client.accinfo_query(trd_env=trd_env, acc_id=int(account_id), refresh_cache=True, currency=currency)
+        funds = _rows(_ok(moo, client.accinfo_query(trd_env=trd_env, acc_id=int(account_id),
+                         refresh_cache=True, currency=currency), "USD cash refresh"))
+        if len(funds) == 1:
+            cash = _number(funds[0].get("us_cash"))
     except Exception:
         pass
     raw_positions = _rows(positions)
@@ -171,7 +174,7 @@ def read_snapshot(client, account_id: str, account_type: str = "STOCK") -> dict[
                     "US instrument classification query failed" if classification_failed
                     else "instrument was not confirmed as a US stock or ETF")
     return {"scope": "stocks_only", "complete": True, "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "positions": raw_positions, "cash": None, "cash_currency": None}
+            "positions": raw_positions, "cash": cash, "cash_currency": "USD" if cash is not None else None}
 
 
 def _classify_basicinfo(quote, moo, codes: list[str]) -> dict[str, str]:
@@ -297,8 +300,10 @@ def normalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(fetched, str) or not fetched:
         issues.append("Moomoo snapshot timestamp is missing")
     rows = sorted(by_ticker.values(), key=lambda p: p["ticker"])
+    cash = _number(snapshot.get("cash")) if snapshot.get("cash_currency") == "USD" else None
     return {"scope": "stocks_only", "positions": rows, "fetched_at": fetched,
             "position_count": len(positions), "supported_count": len(rows),
-            "cash": None, "currency": "USD", "rejected": rejected, "excluded": excluded,
-            "warnings": ["Moomoo USD cash could not be verified; actionable trades for this account will be rejected"],
+            "cash": cash, "currency": "USD", "rejected": rejected, "excluded": excluded,
+            "warnings": ["Moomoo USD cash could not be verified; actionable trades for this account will be rejected"]
+                        if cash is None else [],
             "issues": issues, "can_apply": not issues}

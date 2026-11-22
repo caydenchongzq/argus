@@ -16,6 +16,27 @@ assert.match(appSource, /data-run-ticker="\$\{esc\(ticker\)\}"[^>]*value="\$\{es
 assert.match(styles, /#runComposer\s+\[hidden\]\s*\{\s*display:\s*none\s*!important;/,
   "conditional composer panels must honor hidden even when component styles set display");
 
+const freshnessStart = appSource.indexOf("function runReportFreshness(");
+const freshnessEnd = appSource.indexOf("\nfunction renderRunTickerChanges", freshnessStart);
+assert.ok(freshnessStart >= 0 && freshnessEnd > freshnessStart, "report freshness helper is present");
+const freshnessContext = {};
+vm.runInNewContext(`${appSource.slice(freshnessStart, freshnessEnd)}; this.runReportFreshness = runReportFreshness;`, freshnessContext);
+const freshness = freshnessContext.runReportFreshness;
+const utcToday = new Date("2026-11-21T23:30:00-08:00");
+for (const [date, stale] of [["20261122", false], ["20261116", false], ["20261115", false], ["20261114", true]]) {
+  assert.equal(Boolean(freshness({ AAA: { ymd: date } }, "AAA", utcToday).stale), stale, `${date} freshness boundary`);
+}
+const timezoneWest = new Date("2026-11-20T23:30:00-12:00");
+const timezoneEast = new Date("2026-11-22T01:30:00+14:00");
+assert.equal(timezoneWest.toISOString(), timezoneEast.toISOString(), "timezone fixtures represent the same instant");
+assert.equal(Boolean(freshness({ AAA: { ymd: "20261114" } }, "AAA", timezoneWest).stale), false, "UTC day is consistent in western timezone");
+assert.equal(Boolean(freshness({ AAA: { ymd: "20261114" } }, "AAA", timezoneEast).stale), false, "UTC day is consistent in eastern timezone");
+assert.match(freshness({ AAA: { ymd: "20260229" } }, "AAA", utcToday).text, /unknown/, "invalid leap date is unknown");
+assert.match(freshness({ AAA: { ymd: "20240229" } }, "AAA", utcToday).text, /2024-02-29/, "valid leap date formats safely");
+assert.match(freshness({ AAA: { ymd: "20261123" } }, "AAA", utcToday).text, /unknown/, "future report date is unknown");
+assert.match(freshness({}, "AAA", utcToday).text, /No report/, "missing ticker is explicit");
+assert.match(freshness(null, "AAA", utcToday).text, /unavailable/, "failed metadata is distinct from no report");
+
 // The actual scenario change handler only updates draft state and local UI.
 class Element {
   constructor(id = "") {

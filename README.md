@@ -138,6 +138,16 @@ argus/
   README.md
 ```
 
+## Settings
+
+- **Agents** at `/settings` groups model assignments and role prompts by workflow. Save an agent change to apply it to future runs. Existing `/agents` bookmarks redirect here.
+- **Models** at `/settings/models` shows the shared saved list. Choose **Search OpenRouter** to look up a model by name, publisher, or ID. Review its rates, context limits, and supported agent workflows, then add it to make it available in compatible agent pickers. You can remove any model once you reassign the agents still using it. **Reset prompt** restores an agent’s role prompt.
+- **Watchlist and spending** at `/settings/watchlist` contains the weekly spending check and watchlist candidate limits. Policy changes have their own save action.
+
+Model discovery uses OpenRouter's public metadata. Models loads the local cache and checks for an update when it is more than 24 hours old. **Refresh catalog** requests an update immediately. If OpenRouter is unavailable, the saved list and last successful metadata stay available. Refreshing prices or adding a model does not change agent assignments or start a model call.
+
+Catalog input and output prices are in USD per million tokens. Details show published long-context thresholds where available. Actual charges depend on routing, usage, and other billing dimensions. OpenRouter-reported charges take precedence in the spending ledger. The dashboard's configured budget estimates are planning amounts.
+
 ## Safety notes
 
 - Binds to **127.0.0.1** by default. Optional LAN binding requires the explicit interface address in `ARGUS_HOST`; wildcard binding is rejected. In LAN mode, there is no login or TLS and anyone on the private network can access portfolio data.
@@ -204,7 +214,7 @@ systemctl --user restart argus.service
 
 6. After reconciliation, review the scope and confirmation boxes and select **Apply account snapshot**. This updates only that account and retains a backup. In **Portfolio**, use the account filter to check each broker separately, then **All accounts** to check combined quantities and compatible quantity-weighted costs. Use **Runs → Refresh snapshot → Run snapshot** for updated portfolio prices without model calls. That price refresh does not pull new broker quantities; repeat the broker preview/apply flow when those change.
 
-Only supported US/USD stock positions are included. Non-USD balances, options and other markets are disclosed as excluded; an incomplete supported-stock query blocks application. Moomoo USD cash remains **unknown**, even when buying power or other cash-like values are returned. Holdings can be imported, but the account cannot fund validated actionable trades until its USD cash is verified; cash-dependent combined totals remain unavailable rather than becoming zero.
+Argus imports supported US/USD stock positions and moomoo's per-currency USD cash balance. Other currency balances, options and other markets are outside that scope. An incomplete supported-stock query blocks application. If moomoo does not return the USD cash field, cash stays **unknown** and cash-dependent totals and current weights remain unavailable.
 
 **Testing boundary:** the adapter, account merging, cost/cash handling, preview/apply guards and UI have passed offline fixture checks. Live OpenD connectivity and Singapore account authorization must be tested with your own signed-in gateway using the preview steps above. If SDK import fails, resolve the installation first; if the listener check fails, start/configure OpenD; if account loading fails or returns no account, check the OpenD login, first-use agreements and real-account US market authorization. Do not bypass an unsupported or incomplete preview by applying an empty account.
 

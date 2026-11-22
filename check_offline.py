@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -25,6 +26,9 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="argus_check_"))
     try:
         shutil.copytree(real_ta / "addons", tmp / "addons", ignore=shutil.ignore_patterns(".git", "__pycache__", "*.bak*"))
+        (tmp / "addons" / "agent_config.json").write_text('{"seats": {}}\n', encoding="utf-8")
+        for name in ("ARGUS_ADDONS_DIR", "ARGUS_AGENT_CONFIG", "ARGUS_MODELS_CONFIG"):
+            os.environ.pop(name, None)
         profile_cli = tmp / "cli" / "main.py"
         profile_cli.parent.mkdir(parents=True)
         profile_cli.write_text("# profile fingerprint fixture\n", encoding="utf-8")
@@ -110,6 +114,13 @@ def main() -> int:
         assert "unvalidated_outputs" not in history_row, "history rows must not copy raw model responses"
 
         c = TestClient(server.app, base_url="http://127.0.0.1")
+        for route in ("/", "/portfolio", "/watchlist", "/reports", "/fund", "/themes", "/runs",
+                      "/settings", "/settings/models", "/settings/watchlist", "/agents"):
+            response = c.get(route)
+            assert response.status_code == 200, (route, response.status_code)
+            assert "id=\"nav\"" in response.text, route
+        for route in ("/unknown-page", "/api/unknown", "/static/unknown.js"):
+            assert c.get(route).status_code == 404, route
         assert server._has_legacy_account()
         assert server._bound_legacy_choice({"replace_legacy": False}, False) is False
         for preview_choice, changed in ((False, True), (None, True), (True, False)):
@@ -138,8 +149,99 @@ def main() -> int:
         }), encoding="utf-8")
         assert server._has_legacy_account(), "v2 wrapped legacy account was missed"
         (data / "my_book.json").write_text(json.dumps({"cash": 0, "positions": []}), encoding="utf-8")
+        from run_inputs import fingerprint as fingerprint_run_inputs
+        fingerprint_data = tmp / "fingerprint_data"
+        fingerprint_data.mkdir()
+        fingerprint_rates = tmp / "fingerprint_models.json"
+        fingerprint_rates.write_text('{"fetched_at":"2026-01-01","models":[]}', encoding="utf-8")
+        fingerprint_config = {"model_rates": fingerprint_rates}
+        stable_rate_rows = [{"id": "openai/gpt-6.2-sol", "usd_per_mtok_in": 2,
+                             "usd_per_mtok_out": 10, "price_tiers": []}]
+        first_digest = fingerprint_run_inputs(fingerprint_data, tmp, fingerprint_config,
+                                              model_rate_inventory=stable_rate_rows)["sha256"]
+        fingerprint_rates.write_text('{"fetched_at":"2026-01-02","models":[{"id":"other/model"}]}',
+                                     encoding="utf-8")
+        refreshed_digest = fingerprint_run_inputs(fingerprint_data, tmp, fingerprint_config,
+                                                  model_rate_inventory=stable_rate_rows)["sha256"]
+        assert first_digest == refreshed_digest, "unrelated catalog content changed the paid-run fingerprint"
+        changed_digest = fingerprint_run_inputs(fingerprint_data, tmp, fingerprint_config,
+            model_rate_inventory=[{**stable_rate_rows[0], "usd_per_mtok_out": 11}])["sha256"]
+        assert changed_digest != refreshed_digest, "effective model rate changes must invalidate review"
         token = c.get("/api/session").json()["token"]
         headers = {"X-Argus-Confirm": token, "Origin": "http://127.0.0.1"}
+        model_rows = c.get("/api/models", params={"q": "gpt-6.2-sol"}).json()["results"]
+        assert any(row["id"] == "openai/gpt-6.2-sol" for row in model_rows), "cached model search missed GPT-6.2 Sol"
+        agents_before = c.get("/api/agents").json()
+        market_before = next(seat for seat in agents_before["seats"] if seat["id"] == "market")
+        blocked_default = c.put("/api/models", json={"id": market_before["default_model"], "saved": False},
+                                headers=headers)
+        assert blocked_default.status_code == 409 and "Reassign" in blocked_default.text
+        candidate = next(row for row in c.get("/api/models", params={"q": "gpt"}).json()["results"]
+                         if "market" in row.get("compatible_seats", [])
+                         and row["id"] not in agents_before["saved_models"]
+                         and row["id"] != market_before["model"]
+                         and row["id"] != market_before["default_model"])
+        candidate_id = candidate["id"]
+        unused_candidate = next((row["id"] for row in c.get("/api/models", params={"q": "gpt"}).json()["results"]
+                                 if row["id"] not in agents_before["saved_models"]
+                                 and row["id"] != candidate_id
+                                 and row["id"] != market_before["model"]
+                                 and row["id"] != market_before["default_model"]), None)
+        assert c.put("/api/models", json={"id": candidate_id, "saved": True}).status_code == 401
+        added_model = c.put("/api/models", json={"id": candidate_id, "saved": True}, headers=headers)
+        assert added_model.status_code == 200, added_model.text
+        assert candidate_id in c.get("/api/agents").json()["saved_models"]
+        changed_agent = c.put("/api/agents", json={"seats": {"market": {"model": candidate_id}}}, headers=headers)
+        assert changed_agent.status_code == 200, changed_agent.text
+        returned_models = {row["id"] for row in changed_agent.json()["models"]}
+        assert candidate_id in returned_models
+        assert unused_candidate not in returned_models, "saving agent settings leaked unlisted provider models"
+        blocked_remove = c.put("/api/models", json={"id": candidate_id, "saved": False}, headers=headers)
+        assert blocked_remove.status_code == 409 and "Market analyst" in blocked_remove.text
+        reset_agent = c.put("/api/agents", json={"seats": {"market": {"model": market_before["model"]}}}, headers=headers)
+        assert reset_agent.status_code == 200, reset_agent.text
+        removed_model = c.put("/api/models", json={"id": candidate_id, "saved": False}, headers=headers)
+        assert removed_model.status_code == 200, removed_model.text
+        assert candidate_id not in c.get("/api/agents").json()["saved_models"]
+        assert c.put("/api/models", json={"id": candidate_id, "saved": True}, headers=headers).status_code == 200
+        assert c.put("/api/models", json={"id": candidate_id, "saved": True}, headers=headers).status_code == 200
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assign_future = pool.submit(c.put, "/api/agents",
+                json={"seats": {"market": {"model": candidate_id}}}, headers=headers)
+            remove_future = pool.submit(c.put, "/api/models",
+                json={"id": candidate_id, "saved": False}, headers=headers)
+            assign_race = assign_future.result()
+            remove_race = remove_future.result()
+        assert not (assign_race.status_code == 200 and remove_race.status_code == 200), \
+            "concurrent assignment and removal both committed"
+        race_state = c.get("/api/agents").json()
+        market_after_race = next(seat for seat in race_state["seats"] if seat["id"] == "market")
+        assert (candidate_id in race_state["saved_models"]) == (market_after_race["model"] == candidate_id), \
+            "concurrent assignment and removal left membership inconsistent"
+        if market_after_race["model"] == candidate_id:
+            assert c.put("/api/agents", json={"seats": {"market": {"model": market_before["model"]}}},
+                         headers=headers).status_code == 200
+            assert c.put("/api/models", json={"id": candidate_id, "saved": False}, headers=headers).status_code == 200
+        assert c.get("/api/models", params={"q": "gpt-6.2-sol"}).status_code == 200
+        import model_inventory
+        paid_manifest = c.post("/api/runs/manifest", json={})
+        assert paid_manifest.status_code == 200, paid_manifest.text
+        rate_snapshot = model_inventory.load_snapshot(server.agent_config.models_path())
+        rate_row = next(row for row in rate_snapshot["models"] if row["id"] == "openai/gpt-6-luna")
+        rate_row["usd_per_mtok_out"] = (rate_row.get("usd_per_mtok_out") or 0) + 1
+        model_inventory.write_snapshot(server.agent_config.models_path(), rate_snapshot)
+        stale_paid_run = c.post("/api/runs", json={"confirm": True,
+            "manifest_sha256": paid_manifest.json()["manifest_sha256"]}, headers=headers)
+        assert stale_paid_run.status_code == 409, stale_paid_run.text
+        scout_manifest = c.post("/api/theme-scout/manifest", json={"mode": "weekly", "include_llm": False})
+        assert scout_manifest.status_code == 200, scout_manifest.text
+        rate_snapshot = model_inventory.load_snapshot(server.agent_config.models_path())
+        rate_row = next(row for row in rate_snapshot["models"] if row["id"] == "openai/gpt-6-luna")
+        rate_row["usd_per_mtok_out"] += 1
+        model_inventory.write_snapshot(server.agent_config.models_path(), rate_snapshot)
+        unchanged_scout = c.post("/api/theme-scout/manifest", json={"mode": "weekly", "include_llm": False})
+        assert unchanged_scout.status_code == 200 and unchanged_scout.json()["manifest_sha256"] == scout_manifest.json()["manifest_sha256"], \
+            "no-LLM scout preview should not depend on model prices"
         from portfolio_import import book_version
         now = datetime.now(timezone.utc).isoformat()
         def apply_fixture(broker, preview_id, record, choice):
@@ -635,8 +737,8 @@ def main() -> int:
         spawned = []
         server._spawn_run = lambda _meta, _args: spawned.append(_args)
         original_public_payload = server.agent_config.public_payload
-        def scout_without_price():
-            payload = original_public_payload()
+        def scout_without_price(snapshot=None):
+            payload = original_public_payload(snapshot=snapshot)
             for seat in payload.get("seats", []):
                 if seat.get("id") == "theme_scout":
                     seat["est_cost_usd"] = None
@@ -736,10 +838,12 @@ def main() -> int:
         (fake_ta / "addons" / "agent_config.py").write_text(
             "from pathlib import Path\n"
             "def config_path(): return Path(__file__).with_name('agent_config.json')\n"
-            "def models_path(): return Path(__file__).with_name('openrouter_models.json')\n",
+            "def models_path(): return Path(__file__).with_name('openrouter_models.json')\n"
+            "def public_payload(snapshot=None): return {'seats': [], 'models': []}\n",
             encoding="utf-8")
+        shutil.copy2(real_addons / "model_inventory.py", fake_ta / "addons" / "model_inventory.py")
         (fake_ta / "addons" / "agent_config.json").write_text("{}\n", encoding="utf-8")
-        (fake_ta / "addons" / "openrouter_models.json").write_text("{}\n", encoding="utf-8")
+        (fake_ta / "addons" / "openrouter_models.json").write_text('{"models":[]}\n', encoding="utf-8")
         (data / "my_book.json").write_text(json.dumps({
             "positions": [{"ticker": "AAA", "quantity": 1}], "cash": 0, "currency": "USD"}), encoding="utf-8")
         run = subprocess.run([
@@ -757,13 +861,13 @@ def main() -> int:
             "model_rates": fake_ta / "addons" / "openrouter_models.json",
             "argus_runner": HERE / "run_analysis.py",
             "argus_run_inputs": HERE / "run_inputs.py",
-        })["sha256"]
+        }, model_rate_inventory=[])["sha256"]
         expected_profile_inputs = fingerprint_run_inputs(data, fake_ta, {
             "agent_config": fake_ta / "addons" / "agent_config.json",
             "model_rates": fake_ta / "addons" / "openrouter_models.json",
             "argus_runner": HERE / "run_analysis.py",
             "argus_run_inputs": HERE / "run_inputs.py",
-        }, include_research_profile=True)["sha256"]
+        }, include_research_profile=True, model_rate_inventory=[])["sha256"]
         verified = subprocess.run([
             sys.executable, str(HERE / "run_analysis.py"), "--ta-root", str(fake_ta),
             "--data-root", str(data), "--manifest-input-fingerprint", expected_inputs,
@@ -805,6 +909,27 @@ def main() -> int:
         scout_args = json.loads((data / "scout-args.json").read_text(encoding="utf-8"))
         sector_at = scout_args.index("--sectors")
         assert scout_args[sector_at + 1:sector_at + 3] == ["XLK", "XLY"] and "--screen" in scout_args, scout_args
+
+        retired = market_before["default_model"]
+        replacement = "openai/gpt-6.2-sol"
+        current_agents = c.get("/api/agents").json()["seats"]
+        assert c.put("/api/models", json={"id": replacement, "saved": True},
+                     headers=headers).status_code == 200
+        assignments = {seat["id"]: {**seat, "model": replacement}
+                       for seat in current_agents if seat["model"] == retired or seat["default_model"] == retired}
+        swapped = c.put("/api/agents", json={"seats": assignments}, headers=headers)
+        assert swapped.status_code == 200, swapped.text
+        removed_default = c.put("/api/models", json={"id": retired, "saved": False}, headers=headers)
+        assert removed_default.status_code == 200, removed_default.text
+        assert retired not in removed_default.json()["saved_models"]
+        refused = c.put("/api/agents", json={"seats": {"market": {"model": retired}}}, headers=headers)
+        assert refused.status_code == 409, refused.text
+        partial_save = c.put("/api/agents", json={"seats": {}}, headers=headers)
+        assert partial_save.status_code == 200, partial_save.text
+        agents_after = partial_save.json()
+        assert all(seat["model"] == replacement for seat in agents_after["seats"]
+                   if seat["id"] in assignments)
+        assert retired not in {row["id"] for row in agents_after["models"]}
         print("argus check_offline: ok")
         print(f"  log events {len(log) + 2}, spend {s['spent_usd']} of {s['budget_usd']}")
         return 0

@@ -239,8 +239,29 @@ def _main(argv: list[str] | None = None) -> int:
                     "argus_runner": ROOT / "run_analysis.py",
                     "argus_run_inputs": ROOT / "run_inputs.py",
                 }
+                model_rate_inventory = []
+                if not args.no_llm:
+                    models_module = importlib.import_module("model_inventory")
+                    snapshot = models_module.load_snapshot(Path(agent_config.models_path()))
+                    seats = agent_config.public_payload(snapshot=snapshot).get("seats") or []
+                    if args.scout_mode:
+                        active_ids = {"theme_scout"} if args.scout_llm else set()
+                    else:
+                        expected_tickers = json.loads(args.manifest_analysis_tickers_json or "[]")
+                        active_ids = set()
+                        if expected_tickers:
+                            active_ids.update(seat.get("id") for seat in seats
+                                              if seat.get("pipeline") == "native")
+                        if not args.anl_only:
+                            active_ids.update(seat.get("id") for seat in seats
+                                              if seat.get("pipeline") == "fund")
+                    active_models = list(dict.fromkeys(
+                        seat.get("model") for seat in seats
+                        if seat.get("id") in active_ids and seat.get("model")))
+                    model_rate_inventory = models_module.effective_rates(active_models, snapshot=snapshot)
                 input_hash = _fingerprint_run_inputs(
-                    root, ta, config_paths, include_research_profile=bool(expected_tickers))
+                    root, ta, config_paths, include_research_profile=bool(expected_tickers),
+                    model_rate_inventory=model_rate_inventory)
                 input_hash = input_hash["sha256"]
             except Exception as exc:
                 print(f"RUN_MANIFEST_INVALID=agent configuration unavailable: {exc}", flush=True)

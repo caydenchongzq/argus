@@ -5,6 +5,9 @@ const SPRITE = "/static/argus-brand/assets/icons/argus-icons.svg";
 const MINUS = "\u2212";
 const RunDraft = globalThis.ArgusRunDraft;
 let runDraftPreviewGeneration = 0;
+const PAGE_PATHS = Object.freeze({ portfolio: "/portfolio", watchlist: "/watchlist", reports: "/reports", fund: "/fund", themes: "/themes", runs: "/runs", settings: "/settings" });
+let pageNavigationGeneration = 0;
+let sessionReady = Promise.resolve();
 
 const state = {
   tab: "portfolio",
@@ -49,6 +52,16 @@ const state = {
   agentLoading: false,
   agentError: "",
   agentCloseMode: null,
+  settingsSection: "agents",
+  settingsFormInitialized: false,
+  modelCatalog: null,
+  modelQuery: "",
+  modelSearchTimer: null,
+  modelRefreshPromise: null,
+  modelRefreshInFlight: false,
+  modelCatalogRequestId: 0,
+  modelCatalogEpoch: 0,
+  settingsFormBaseline: null,
 };
 
 let closingFromConfirm = false;
@@ -218,11 +231,23 @@ async function api(path, opts = {}) {
 
 async function loadSettings() {
   const settings = await api("/api/settings");
+  const draftChanged = state.settingsFormInitialized && state.settingsFormBaseline && (
+    $("#settingsBudgetEnabled").checked !== !!state.settingsFormBaseline.weekly_budget_enabled
+    || Number($("#settingsBudgetUsd").value) !== Number(state.settingsFormBaseline.weekly_budget_usd)
+    || nullableNumber("#settingsMaxCandidates") !== (state.settingsFormBaseline.max_candidates ?? null)
+    || nullableNumber("#settingsMaxSector") !== (state.settingsFormBaseline.max_stocks_per_sector ?? null)
+  );
   state.settings = settings;
+  state.settingsFormBaseline = settings;
+  if (draftChanged) {
+    $("#settingsStatus").textContent = "Policy settings changed elsewhere. Your edits are still here. Review them before saving.";
+    return;
+  }
   $("#settingsBudgetEnabled").checked = !!settings.weekly_budget_enabled;
   $("#settingsBudgetUsd").value = settings.weekly_budget_usd ?? 25;
   $("#settingsMaxCandidates").value = settings.max_candidates ?? "";
   $("#settingsMaxSector").value = settings.max_stocks_per_sector ?? "";
+  state.settingsFormInitialized = true;
   const limits = [
     settings.max_candidates == null ? "unlimited saved candidates" : `${settings.max_candidates} saved candidates`,
     settings.max_stocks_per_sector == null ? "unlimited stocks per sector" : `${settings.max_stocks_per_sector} stocks per sector`,
@@ -259,12 +284,273 @@ async function persistSettings() {
     max_candidates: nullableNumber("#settingsMaxCandidates"),
     max_stocks_per_sector: nullableNumber("#settingsMaxSector"),
   };
-  await api("/api/settings", { method: "PUT", body: JSON.stringify(body) });
+  const saved = await api("/api/settings", { method: "PUT", body: JSON.stringify(body) });
+  state.settings = saved && typeof saved === "object" ? saved : body;
+  state.settingsFormBaseline = state.settings;
+  state.settingsFormInitialized = false;
   await loadSettings();
   showToast("Policy settings saved.", "ok");
 }
 
 $("#settingsSave").addEventListener("click", requestSettingsSave);
+
+function settingsPath(section = "agents") {
+  return section === "models" ? "/settings/models" : section === "watchlist" ? "/settings/watchlist" : "/settings";
+}
+
+function sectionForPath(path) {
+  return path === "/settings/models" ? "models" : path === "/settings/watchlist" ? "watchlist" : "agents";
+}
+
+function pageForPath(path) {
+  return path.startsWith("/settings") ? "settings"
+    : Object.keys(PAGE_PATHS).find((key) => PAGE_PATHS[key] === path) || "portfolio";
+}
+
+function setSettingsSection(section) {
+  state.settingsSection = ["agents", "models", "watchlist"].includes(section) ? section : "agents";
+  $$("[data-settings-section]").forEach((link) => {
+    if (link.dataset.settingsSection === state.settingsSection) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
+  $("#settings-agents").classList.toggle("hidden", state.settingsSection !== "agents");
+  $("#settings-models").classList.toggle("hidden", state.settingsSection !== "models");
+  $("#settings-watchlist").classList.toggle("hidden", state.settingsSection !== "watchlist");
+}
+
+function modelId(row) { return String(row && (row.id || row.canonical_slug) || ""); }
+
+function savedModelRows(catalog = state.modelCatalog) {
+  if (Array.isArray(catalog.saved_rows)) return catalog.saved_rows;
+  if (!Array.isArray(catalog.saved_models)) return [];
+  const ids = catalog.saved_models.map((row) => typeof row === "string" ? row : modelId(row));
+  const known = new Map((state.agentDoc?.models || []).map((row) => [row.id, row]));
+  return ids.map((id) => known.get(id) || { id, label: id, availability: "unavailable" });
+}
+
+function savedModelIds(catalog = state.modelCatalog) {
+  return Array.isArray(catalog.saved_models) ? catalog.saved_models.map((row) => typeof row === "string" ? row : modelId(row)) : [];
+}
+
+function modelPrice(row, direction) {
+  const direct = row && row["usd_per_mtok_" + direction];
+  if (direct !== undefined) return direct != null && Number.isFinite(Number(direct)) && Number(direct) >= 0 ? Number(direct) : null;
+  const key = direction === "in" ? "prompt" : "completion";
+  const raw = row && row.pricing && row.pricing[key];
+  if (raw == null || raw === "") return null;
+  const amount = Number(raw);
+  return Number.isFinite(amount) && amount >= 0 ? amount * 1000000 : null;
+}
+
+function modelRate(row, direction) {
+  const value = modelPrice(row, direction);
+  if (value == null) return "Unknown";
+  const stale = row.availability === "unavailable" || row.available === false;
+  if (value === 0) return stale ? "Last known free" : "Free";
+  return (stale ? "Last known " : "") + moneyCost(value) + " / 1M tokens";
+}
+
+function modelDetails(row) {
+  const context = row.context_length ?? row.context ?? (row.top_provider && row.top_provider.context_length);
+  const output = row.max_output_tokens ?? row.max_output ?? (row.top_provider && row.top_provider.max_completion_tokens);
+  const parameters = row.supported_parameters || (row.architecture && row.architecture.input_modalities) || [];
+  const rawTiers = row.price_tiers || row.tiers || row.pricing_tiers || [];
+  const tiers = Array.isArray(rawTiers) ? rawTiers : [];
+  const capabilityText = Array.isArray(parameters) ? parameters.join(", ") : String(parameters || "Unknown");
+  const priceSource = row.price_source || row.pricing_source || row.source || "OpenRouter catalog";
+  const priceFetched = row.price_fetched_at || row.fetched_at || "Catalog update time";
+  const tierText = tiers.length ? tiers.map((tier) => {
+    const threshold = tier.min_prompt_tokens ?? tier.prompt_tokens ?? tier.context_length ?? tier.threshold_tokens;
+    const input = tier.usd_per_mtok_in ?? tier.input_per_million;
+    const outputRate = tier.usd_per_mtok_out ?? tier.output_per_million;
+    return (threshold == null ? "Tier" : Number(threshold).toLocaleString("en-US") + "+ tokens") +
+      (input == null && outputRate == null ? "" : " (" + (input == null ? "unknown" : "$" + input) + " in / " + (outputRate == null ? "unknown" : "$" + outputRate) + " out per 1M)");
+  }).join(", ") : "Base rate";
+  const conditionalPricing = row.has_conditional_pricing
+    ? "<div><dt>Additional pricing</dt><dd>Additional time-based rates may apply. Estimates use base rates.</dd></div>"
+    : "";
+  return "<dl class=\"ar-model-details\"><div><dt>Price source</dt><dd>" + esc(priceSource) + "</dd></div><div><dt>Rate updated</dt><dd>" + esc(priceFetched) + "</dd></div>" +
+    "<div><dt>Context</dt><dd>" + esc(context == null ? "Unknown" : Number(context).toLocaleString("en-US") + " tokens") + "</dd></div>" +
+    "<div><dt>Maximum output</dt><dd>" + esc(output == null ? "Unknown" : Number(output).toLocaleString("en-US") + " tokens") + "</dd></div>" +
+    "<div><dt>Capabilities</dt><dd>" + esc(capabilityText || "Unknown") + "</dd></div>" +
+    "<div><dt>Pricing tiers</dt><dd>" + esc(tierText) + "</dd></div>" + conditionalPricing + "</dl>";
+}
+
+function modelCard(row, options = {}) {
+  const id = modelId(row);
+  const label = row.label || row.name || id;
+  const saved = !!options.saved;
+  const result = !!options.result;
+  const assigned = row.assigned_seats || [];
+  const unavailable = row.availability === "unavailable" || row.available === false;
+  const incompatible = row.eligible === false || row.addable === false || (Array.isArray(row.compatible_seats) && row.compatible_seats.length === 0);
+  const preview = row.is_preview || row.preview ? "<span class=\"ar-badge ar-badge--warn\">Preview</span>" : "";
+  let action;
+  if (result) {
+    action = "<button type=\"button\" class=\"ar-btn ar-btn--sm " + (saved ? "" : "ar-btn--primary") + "\" data-model-action=\"add\" data-model-id=\"" + esc(id) + "\" " + (saved || unavailable || incompatible ? "disabled" : "") + ">" + (saved ? "Saved" : unavailable ? "Unavailable" : incompatible ? "Not supported" : "Add model") + "</button>";
+  } else if (assigned.length) {
+    action = "<button type=\"button\" class=\"ar-btn ar-btn--sm ar-btn--ghost\" disabled>In use</button>";
+  } else {
+    action = "<button type=\"button\" class=\"ar-btn ar-btn--sm ar-btn--ghost\" data-model-action=\"remove\" data-model-id=\"" + esc(id) + "\">Remove</button>";
+  }
+  const useNote = assigned.length ? "<p class=\"ar-subtle\">Assigned to " + esc(assigned.join(", ")) +
+    "." + (result ? "" : " Reassign these agents to remove this model.") + "</p>" : "";
+  const unavailableNote = !result && unavailable ? "<p class=\"ar-subtle\">Saved model is unavailable in the current catalog. Displayed rates are last known.</p>" : "";
+  return "<article class=\"ar-model-row\"><div class=\"ar-model-main\"><div class=\"ar-model-title\"><h4>" + esc(label) + "</h4>" + preview + "</div>" +
+    "<code>" + esc(id) + "</code><p class=\"ar-model-description\">" + esc(row.description || "No provider description.") + "</p>" + unavailableNote + useNote +
+    "<details><summary>Model details</summary>" + modelDetails(row) + "</details></div><div class=\"ar-model-price\"><span><small>Input</small><strong>" + esc(modelRate(row, "in")) + "</strong></span>" +
+    "<span><small>Output</small><strong>" + esc(modelRate(row, "out")) + "</strong></span></div><div class=\"ar-model-action\">" + action + "</div></article>";
+}
+
+function renderModelCatalog() {
+  const catalog = state.modelCatalog || {};
+  const updated = catalog.fetched_at ? "Last updated " + catalog.fetched_at + "." : "Catalog has not been updated yet.";
+  $("#modelCatalogStatus").textContent = (catalog.source || "OpenRouter") + ". " + updated +
+    (catalog.stale ? " Catalog may be out of date." : "") + (catalog.refreshing ? " Updating catalog…" : "") +
+    (catalog.error ? " " + catalog.error : "");
+  $("#modelRefresh").disabled = state.modelRefreshInFlight;
+  $("#modelRefresh").textContent = state.modelRefreshInFlight ? "Refreshing…" : "Refresh catalog";
+  const saved = savedModelRows(catalog);
+  $("#savedModelCount").textContent = saved.length + " saved";
+  $("#savedModels").innerHTML = saved.length ? saved.map((row) => modelCard(row)).join("") :
+    "<div class=\"ar-model-empty\"><p>No models saved yet.</p><p>Search OpenRouter below and add models for your agents.</p></div>";
+  const results = Array.isArray(catalog.results) ? catalog.results : [];
+  $("#modelResults").innerHTML = state.modelQuery.trim()
+    ? results.length ? results.map((row) => modelCard(row, { saved: row.saved === true || savedModelIds(catalog).includes(modelId(row)), result: true })).join("")
+      : "<div class=\"ar-model-empty\"><p>No models found.</p><p>Try another name, publisher, or model ID.</p></div>"
+    : "<p class=\"ar-subtle\">Search the catalog to compare models and rates.</p>";
+}
+
+function mergeCatalogModels(catalog) {
+  if (!state.agentDoc) return;
+  const savedIds = savedModelIds(catalog);
+  const saved = new Set(savedIds);
+  const previous = new Map((state.agentDoc.models || []).map((row) => [row.id, row]));
+  const merged = new Map(savedModelRows(catalog).map((row) => [modelId(row), { ...row, saved: true }]));
+  (state.agentDoc.seats || []).forEach((seat) => {
+    const draft = state.agentDraft[seat.id] || {};
+    [seat.model, draft.model].filter(Boolean).forEach((id) => {
+      if (merged.has(id)) return;
+      const row = previous.get(id);
+      merged.set(id, row ? { ...row, saved: saved.has(id) } : {
+        id, label: id, availability: "unavailable", saved: saved.has(id),
+        usd_per_mtok_in: null, usd_per_mtok_out: null,
+      });
+    });
+  });
+  state.agentDoc.models = [...merged.values()];
+  state.agentDoc.saved_models = savedIds;
+  state.agentDoc.catalog = catalog;
+  renderAgents();
+}
+
+function modelAssignmentIssue(seat, modelId) {
+  if (!modelId || modelId === seat.model) return "";
+  const row = (state.agentDoc?.models || []).find((model) => model.id === modelId);
+  const saved = new Set(state.agentDoc?.saved_models || []);
+  if (!saved.has(modelId)) return "Removed from the saved list. Choose another model or add this one again in Settings → Models.";
+  if (!row || row.availability === "unavailable" || row.available === false) return "Unavailable in OpenRouter. Choose another saved model.";
+  if (Array.isArray(row.compatible_seats) && !row.compatible_seats.includes(seat.id)) return "This model does not support this agent.";
+  return "";
+}
+
+function invalidModelDrafts() {
+  return (state.agentDoc?.seats || []).filter((seat) => {
+    const draft = state.agentDraft[seat.id];
+    return draft && seatDirty(seat) && modelAssignmentIssue(seat, draft.model);
+  });
+}
+
+async function loadModelCatalog(query = state.modelQuery, refreshIfStale = false) {
+  state.modelQuery = query;
+  const requestId = ++state.modelCatalogRequestId;
+  const epoch = state.modelCatalogEpoch;
+  const params = new URLSearchParams({ q: query });
+  let catalog;
+  try {
+    catalog = await api("/api/models?" + params.toString());
+  } catch (error) {
+    if (requestId !== state.modelCatalogRequestId || epoch !== state.modelCatalogEpoch || query !== state.modelQuery) return;
+    throw error;
+  }
+  if (requestId !== state.modelCatalogRequestId || epoch !== state.modelCatalogEpoch || query !== state.modelQuery) return;
+  state.modelCatalog = catalog;
+  mergeCatalogModels(state.modelCatalog);
+  renderModelCatalog();
+  if (refreshIfStale && state.modelCatalog.stale && !state.modelRefreshPromise) refreshModelCatalog();
+}
+
+async function refreshModelCatalog() {
+  if (state.modelRefreshPromise) return state.modelRefreshPromise;
+  state.modelRefreshInFlight = true;
+  state.modelCatalogEpoch += 1;
+  state.modelCatalogRequestId += 1;
+  state.modelCatalog = { ...(state.modelCatalog || {}), refreshing: true, error: "" };
+  renderModelCatalog();
+  state.modelRefreshPromise = (async () => {
+    try {
+      await api("/api/models/refresh", { method: "POST", body: "{}" });
+      await loadModelCatalog(state.modelQuery);
+    } catch (error) {
+      state.modelCatalog = { ...(state.modelCatalog || {}), refreshing: false, error: error.message };
+      renderModelCatalog();
+    } finally {
+      state.modelRefreshPromise = null;
+      state.modelRefreshInFlight = false;
+      if (state.modelCatalog?.refreshing) {
+        state.modelCatalog = { ...state.modelCatalog, refreshing: false };
+      }
+      renderModelCatalog();
+    }
+  })();
+  return state.modelRefreshPromise;
+}
+
+async function setModelSaved(id, saved) {
+  state.modelCatalogEpoch += 1;
+  state.modelCatalogRequestId += 1;
+  try {
+    await api("/api/models", { method: "PUT", body: JSON.stringify({ id, saved }) });
+    await loadModelCatalog(state.modelQuery);
+    showToast(saved ? "Model added to the saved list." : "Model removed from the saved list.", "ok");
+  } catch (error) {
+    showToast(error.message, "danger");
+    await loadModelCatalog(state.modelQuery).catch(() => {});
+  }
+}
+
+$$("[data-settings-section]").forEach((link) => link.addEventListener("click", (event) => {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  const section = link.dataset.settingsSection;
+  const path = settingsPath(section);
+  if (location.pathname !== path) window.history.pushState({ page: "settings", section }, "", path);
+  setSettingsSection(section);
+  if (section === "models") loadModelCatalog(state.modelQuery, true).catch((error) => {
+    state.modelCatalog = { ...(state.modelCatalog || {}), error: error.message };
+    renderModelCatalog();
+  });
+}));
+
+$("#modelSearch").addEventListener("input", (event) => {
+  state.modelQuery = event.target.value;
+  state.modelCatalogRequestId += 1;
+  clearTimeout(state.modelSearchTimer);
+  state.modelSearchTimer = setTimeout(() => loadModelCatalog(state.modelQuery).catch((error) => {
+    state.modelCatalog = { ...(state.modelCatalog || {}), error: error.message };
+    renderModelCatalog();
+  }), 220);
+});
+
+$("#modelRefresh").addEventListener("click", refreshModelCatalog);
+$("#modelResults").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-model-action=add]");
+  if (button) setModelSaved(button.dataset.modelId, true);
+});
+$("#savedModels").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-model-action=remove]");
+  if (button) setModelSaved(button.dataset.modelId, false);
+});
 
 /* ---------- theme ---------- */
 function syncChromeToggles() {
@@ -299,30 +585,54 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
 });
 
 /* ---------- tabs ---------- */
-async function setTab(name) {
+async function setTab(name, { history = true } = {}) {
+  if (!PAGE_PATHS[name]) return;
+  const path = name === "settings" ? settingsPath(state.settingsSection) : PAGE_PATHS[name];
+  if (history && location.pathname !== path) {
+    if (state.tab === name) window.history.replaceState({ page: name }, "", path);
+    else window.history.pushState({ page: name }, "", path);
+  }
+  const generation = ++pageNavigationGeneration;
   if (state.tab === "runs" && name !== "runs") runDraftPreviewGeneration += 1;
   state.tab = name;
   $$("#nav .ar-tab").forEach((b) => {
     const on = b.dataset.tab === name;
-    b.setAttribute("aria-selected", on ? "true" : "false");
+    if (on) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
   });
   $$(".ar-page").forEach((t) => t.classList.toggle("hidden", t.id !== `tab-${name}`));
   try {
+    await sessionReady;
+    if (generation !== pageNavigationGeneration || state.tab !== name) return;
     if (name === "portfolio") await loadPortfolio();
     if (name === "watchlist") await loadWatchlist();
     if (name === "reports") await loadReports();
     if (name === "fund") await loadFund();
     if (name === "themes") await loadThemes();
-    if (name === "runs") await loadRuns();
-  if (name === "agents") { await loadAgents(); await loadSettings(); }
+    if (name === "runs") await loadRuns(generation);
+    if (name === "settings") {
+      setSettingsSection(state.settingsSection);
+      await Promise.all([loadAgents(), loadSettings()]);
+      if (state.settingsSection === "models") await loadModelCatalog(state.modelQuery, true);
+      else if (unsavedIds().length) await loadModelCatalog(state.modelQuery);
+    }
   } catch (e) {
     showToast(e.message, "danger");
   }
 }
 
 $("#nav").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-tab]");
-  if (b) setTab(b.dataset.tab);
+  const link = e.target.closest("a[data-tab]");
+  if (!link || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  if (link.dataset.tab === "settings") state.settingsSection = "agents";
+  setTab(link.dataset.tab);
+});
+
+window.addEventListener("popstate", () => {
+  const page = pageForPath(location.pathname);
+  if (page === "settings") state.settingsSection = sectionForPath(location.pathname);
+  setTab(page, { history: false });
 });
 
 /* ---------- health ---------- */
@@ -399,8 +709,8 @@ async function loadPortfolio() {
       : deltaHtml({ text: "vs cost basis", dir: change.dir, arrow: change.arrow });
 
   $("#pfCards").innerHTML = `
-    <article class="ar-stat ar-span-3"><span class="ar-stat__label">Total value</span><span class="ar-stat__value">${esc(moneyLevel(data.total_market_value, true))}</span><span class="ar-stat__delta"><span class="ar-subtle">Invested + cash</span></span></article>
-    <article class="ar-stat ar-span-3"><span class="ar-stat__label">Cash</span><span class="ar-stat__value">${esc(moneyLevel(data.cash, true))}</span><span class="ar-stat__delta"><span class="ar-subtle">${esc(pctLevel(data.cash_pct, 1))} · approved target ${data.cash_target_pct != null ? esc(pctLevel(data.cash_target_pct, 1)) : "none"}</span></span></article>
+    <article class="ar-stat ar-span-3"><span class="ar-stat__label">Total value</span><span class="ar-stat__value">${data.total_market_value == null ? "Unavailable" : esc(moneyLevel(data.total_market_value, true))}</span><span class="ar-stat__delta"><span class="ar-subtle">Invested + cash</span></span></article>
+    <article class="ar-stat ar-span-3"><span class="ar-stat__label">Cash</span><span class="ar-stat__value">${cashKnown ? esc(moneyLevel(data.cash, true)) : "Unknown"}</span><span class="ar-stat__delta"><span class="ar-subtle">${esc(pctLevel(data.cash_pct, 1))} · approved target ${data.cash_target_pct != null ? esc(pctLevel(data.cash_target_pct, 1)) : "none"}</span></span></article>
     <article class="ar-stat ar-span-3"><span class="ar-stat__label">Unrealized P&amp;L</span><span class="ar-stat__value ${pnlClass}">${pnlValue}</span><span class="ar-stat__delta">${pnlDelta}</span></article>
     <article class="ar-stat ar-span-3"><span class="ar-stat__label">Positions</span><span class="ar-stat__value">${data.positions.length}</span><span class="ar-stat__delta"><span class="ar-subtle">Currency ${esc(data.currency || "USD")}</span></span></article>
   `;
@@ -458,19 +768,31 @@ function renderWeightsChart(data) {
   current.push(data.cash_pct ?? null);
   target.push(data.cash_target_pct ?? null);
 
-  const ctx = $("#weightsChart");
-  const hasTargets = Object.keys(data.targets || {}).length > 0;
-  if (state.chart) state.chart.destroy();
+  const hasCurrent = current.some(Number.isFinite);
+  const hasTargets = target.some(Number.isFinite);
+  const chartNote = $("#weightsChartNote");
+  chartNote.textContent = data.cash == null
+    ? "Current weights require verified USD cash for every account."
+    : data.holdings_value_complete === false
+      ? "Current weights require prices for every holding. Refresh the snapshot to update prices."
+      : "Current weights are unavailable without a nonzero total value.";
+  chartNote.classList.toggle("hidden", hasCurrent);
+  $("#weightsChartPlot").classList.toggle("hidden", !hasCurrent && !hasTargets);
+  if (state.chart) {
+    state.chart.destroy();
+    state.chart = null;
+  }
+  if (!hasCurrent && !hasTargets) return;
   const axis = cssVar("--argus-chart-axis");
   const grid = cssVar("--argus-chart-grid");
   const text = cssVar("--argus-text");
   const font = cssVar("--argus-font-sans");
-  state.chart = new Chart(ctx, {
+  state.chart = new Chart($("#weightsChart"), {
     type: "bar",
     data: {
       labels,
       datasets: [
-        { label: "Current %", data: current, backgroundColor: cssVar("--argus-chart-1"), borderWidth: 0 },
+        ...(hasCurrent ? [{ label: "Current %", data: current, backgroundColor: cssVar("--argus-chart-1"), borderWidth: 0 }] : []),
         ...(hasTargets ? [{ label: "Approved target %", data: target, backgroundColor: cssVar("--argus-chart-2"), borderWidth: 0 }] : []),
       ],
     },
@@ -1043,14 +1365,26 @@ $("#fmHistory").addEventListener("click", (e) => {
 });
 
 /* ---------- runs ---------- */
-async function loadRuns() {
-  const [book, wl, runs, spend, settings] = await Promise.all([
+async function loadRuns(generation = pageNavigationGeneration) {
+  const [book, wl, runs, spend, settings, reports] = await Promise.all([
     api("/api/portfolio"),
     api("/api/watchlist"),
     api("/api/runs"),
     api("/api/spend"),
 api("/api/settings"),
+    api("/api/reports").then((value) => ({ value }), () => ({ error: true })),
   ]);
+  if (generation !== pageNavigationGeneration || state.tab !== "runs") return;
+  const latestReports = reports.value?.latest_by_ticker;
+  if (reports.error || !latestReports || typeof latestReports !== "object" || Array.isArray(latestReports)) {
+    state.latestRunReports = null;
+  } else {
+    state.latestRunReports = Object.create(null);
+    Object.entries(latestReports).forEach(([ticker, report]) => {
+      const key = String(ticker).trim().toUpperCase();
+      if (key && !Object.prototype.hasOwnProperty.call(state.latestRunReports, key)) state.latestRunReports[key] = report;
+    });
+  }
   const spendEl = $("#runSpend");
   if (spendEl && spend) {
     const spent = Number(spend.spent_usd || 0);
@@ -1100,16 +1434,37 @@ let runPreviewInFlight = false;
 function renderRunTickerLists() {
   const eligible = runEligibility();
   const selected = new Set(state.runDraft.tickers || []);
+  const today = new Date();
   const renderGroup = (tickers, group) => tickers.length
     ? tickers.map((ticker) => {
       const row = (state.watchlist || []).find((item) => String(item.ticker || "").toUpperCase() === ticker) || {};
       const detail = group === "holding" ? "Current holding" : (row.sector || row.type || "Saved candidate");
-      return `<label class="ar-run-chip"><input type="checkbox" data-run-ticker="${esc(ticker)}" data-run-source="${group}" value="${esc(ticker)}" ${selected.has(ticker) ? "checked" : ""} aria-describedby="runTickerHelp runTickerError" /><span><strong>${esc(ticker)}</strong><small>${esc(detail)}</small></span></label>`;
+      const freshness = runReportFreshness(state.latestRunReports, ticker, today);
+      const report = freshness.text ? `<small class="ar-run-report-date${freshness.stale || freshness.warning ? " ar-run-report-date--warning" : ""}"${freshness.stale || freshness.warning ? ' role="status"' : ""}>${esc(freshness.text)}</small>` : "";
+      return `<label class="ar-run-chip"><input type="checkbox" data-run-ticker="${esc(ticker)}" data-run-source="${group}" value="${esc(ticker)}" ${selected.has(ticker) ? "checked" : ""} aria-describedby="runTickerHelp runTickerError" /><span><strong>${esc(ticker)}</strong><small>${esc(detail)}</small>${report}</span></label>`;
     }).join("")
     : `<p class="ar-subtle">No ${group === "holding" ? "saved holdings" : "non-held saved candidates"} available.</p>`;
   $("#runHoldingTickers").innerHTML = renderGroup(eligible.holdings, "holding");
   $("#runCandidateTickers").innerHTML = renderGroup(eligible.candidates, "candidate");
   renderRunTickerChanges(eligible.groups);
+}
+
+function runReportFreshness(latestByTicker, ticker, now = new Date()) {
+  if (latestByTicker === null) return { text: "Report data unavailable", warning: true };
+  if (!Object.prototype.hasOwnProperty.call(latestByTicker || {}, ticker)) return { text: "No report", warning: true };
+  const report = latestByTicker[ticker];
+  if (!report || typeof report !== "object" || Array.isArray(report)) return { text: "Report date unknown", warning: true };
+  const raw = String(report.ymd || "");
+  if (!/^\d{8}$/.test(raw)) return { text: "Report date unknown", warning: true };
+  const year = Number(raw.slice(0, 4));
+  const month = Number(raw.slice(4, 6));
+  const day = Number(raw.slice(6, 8));
+  const saved = new Date(Date.UTC(year, month - 1, day));
+  if (saved.getUTCFullYear() !== year || saved.getUTCMonth() !== month - 1 || saved.getUTCDate() !== day || saved.getTime() > Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())) {
+    return { text: "Report date unknown", warning: true };
+  }
+  const age = Math.floor((Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - saved.getTime()) / 86400000);
+  return { text: `Last report: ${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}${age > 7 ? " · Older than 7 days" : ""}`, stale: age > 7 };
 }
 
 function renderRunTickerChanges(groups = runEligibility().groups) {
@@ -1270,7 +1625,10 @@ $("#runComposer").addEventListener("click", (event) => {
 async function handoffWatchlistRefresh() {
   const tickers = [...new Set((state.refreshTickers || []).map((ticker) => String(ticker).toUpperCase()))];
   if (!tickers.length) return;
-  await setTab("runs");
+  const navigation = setTab("runs");
+  const generation = pageNavigationGeneration;
+  await navigation;
+  if (generation !== pageNavigationGeneration || state.tab !== "runs") return;
   const eligible = runEligibility();
   state.runDraft = RunDraft.setMode(state.runDraft, "analyze-review");
   state.runDraft = RunDraft.setTickerSelection(state.runDraft, tickers, eligible.groups);
@@ -1606,13 +1964,17 @@ $("#confirmGo").addEventListener("click", async () => {
       return;
     }
     if (theme) {
+      const generation = pageNavigationGeneration;
       const res = await api("/api/theme-scout", { method: "POST", body: JSON.stringify(theme) });
+      if (generation !== pageNavigationGeneration) return;
       await setTab("runs");
       if (res.run?.id) await selectRun(res.run.id);
       return;
     }
     if (!body) return;
+    const generation = pageNavigationGeneration;
     const res = await api("/api/runs", { method: "POST", body: JSON.stringify(body) });
+    if (generation !== pageNavigationGeneration) return;
     await loadRuns();
     if (res.run?.id) await selectRun(res.run.id);
   } catch (e) {
@@ -1808,8 +2170,24 @@ function moneyCost(n) {
 function seatCost(seat, modelId) {
   const row = (state.agentDoc?.models || []).find((m) => m.id === modelId);
   if (!row || seat.est_input_tokens == null || seat.est_output_tokens == null) return null;
-  if (row.usd_per_mtok_in == null || row.usd_per_mtok_out == null) return null;
-  return seat.est_input_tokens / 1e6 * row.usd_per_mtok_in + seat.est_output_tokens / 1e6 * row.usd_per_mtok_out;
+  const promptTokens = Number(seat.est_input_tokens);
+  const completionTokens = Number(seat.est_output_tokens);
+  if (![promptTokens, completionTokens].every(Number.isFinite)) return null;
+  if (seat.id === "fm_manager" && row.price_tiers?.length) return null;
+  const tier = (row.price_tiers || [])
+    .filter((item) => {
+      const threshold = Number(item.min_prompt_tokens);
+      return Number.isFinite(threshold) && promptTokens >= threshold;
+    })
+    .sort((left, right) => Number(left.min_prompt_tokens) - Number(right.min_prompt_tokens))
+    .at(-1);
+  const rawInput = tier?.usd_per_mtok_in == null ? row.usd_per_mtok_in : tier.usd_per_mtok_in;
+  const rawOutput = tier?.usd_per_mtok_out == null ? row.usd_per_mtok_out : tier.usd_per_mtok_out;
+  if (rawInput == null || rawOutput == null) return null;
+  const input = Number(rawInput);
+  const output = Number(rawOutput);
+  if (!Number.isFinite(input) || !Number.isFinite(output)) return null;
+  return promptTokens / 1e6 * input + completionTokens / 1e6 * output;
 }
 
 function opusWarn(seat) {
@@ -1882,9 +2260,14 @@ function modelOptions(select, seat) {
     select.append(custom);
   }
   known.forEach((model) => {
+    const compatibleSeats = model.compatible_seats;
+    const issue = modelAssignmentIssue(seat, model.id);
+    const incompatible = Array.isArray(compatibleSeats) && !compatibleSeats.includes(seat.id);
     const opt = document.createElement("option");
     opt.value = model.id;
-    opt.textContent = model.label || model.id;
+    opt.textContent = (model.label || model.id) + (issue ? " · " + issue.split(".")[0] : incompatible ? " · unavailable for this agent" : "");
+    opt.disabled = !!issue || incompatible;
+    if (model.id === draft.model) opt.disabled = false;
     select.append(opt);
   });
   select.value = draft.model;
@@ -1962,8 +2345,11 @@ function buildRow(seat) {
   const cost = document.createElement("td");
   cost.className = "ar-num ar-agent-cost ar-col-extra";
   cost.dataset.cost = "1";
+  if (seat.est_cost_note) cost.title = seat.est_cost_note;
   const amount = seatCost(seat, draft.model);
-  cost.textContent = amount == null ? "\u2014" : moneyCost(amount);
+  const costValue = document.createElement("span");
+  costValue.textContent = amount == null ? "\u2014" : moneyCost(amount);
+  cost.append(costValue);
 
   const status = document.createElement("td");
   status.dataset.status = "1";
@@ -1999,7 +2385,8 @@ function patchRow(id) {
   const cost = tr.querySelector("[data-cost]");
   if (cost) {
     const amount = seatCost(seat, draft.model);
-    cost.textContent = amount == null ? "\u2014" : moneyCost(amount);
+    const value = cost.querySelector("span");
+    if (value) value.textContent = amount == null ? "\u2014" : moneyCost(amount);
   }
   fillStatus(tr.querySelector("[data-status]"), seat);
   syncPanelFields(id);
@@ -2209,7 +2596,7 @@ function buildPanelMeta(seat) {
   custom.addEventListener("input", () => {
     const text = custom.value.trim();
     const rowSelect = document.querySelector(`#agentTable tr[data-seat="${seat.id}"] [data-model]`);
-    state.agentDraft[seat.id].model = text || rowSelect?.value || seat.default_model;
+    state.agentDraft[seat.id].model = text || rowSelect?.value || seat.model;
     patchRow(seat.id);
     refreshPanelChrome();
     refreshAgentWarnings();
@@ -2231,6 +2618,12 @@ function buildPanelMeta(seat) {
   const amount = seatCost(seat, draft.model);
   costInput.value = amount == null ? "\u2014" : moneyCost(amount);
   costField.append(costLabel, costInput);
+  if (seat.est_cost_note) {
+    const costNote = document.createElement("p");
+    costNote.className = "ar-subtle";
+    costNote.textContent = seat.est_cost_note;
+    costField.append(costNote);
+  }
 
   host.append(effortField, tokenField);
   if (!seat.supports_temperature) customField.classList.add("ar-agents__span-2");
@@ -2313,7 +2706,7 @@ function hidePanel() {
   state.agentSelected = null;
   $("#agentPanel").classList.add("hidden");
   $("#agentPanel").setAttribute("aria-hidden", "true");
-  $("#tab-agents").classList.remove("is-panel");
+  $("#tab-settings").classList.remove("is-panel");
   $$("#agentTable tr[data-seat]").forEach((tr) => tr.removeAttribute("aria-selected"));
   syncBar();
 }
@@ -2323,7 +2716,7 @@ function selectAgent(id) {
   state.agentSelected = id;
   $("#agentPanel").classList.remove("hidden");
   $("#agentPanel").setAttribute("aria-hidden", "false");
-  $("#tab-agents").classList.add("is-panel");
+  $("#tab-settings").classList.add("is-panel");
   $$("#agentTable tr[data-seat]").forEach((tr) => {
     if (tr.dataset.seat === id) tr.setAttribute("aria-selected", "true");
     else tr.removeAttribute("aria-selected");
@@ -2359,13 +2752,16 @@ function revertAll() {
 
 function syncBar() {
   const count = unsavedIds().length;
+  const invalid = invalidModelDrafts();
   const open = !!state.agentSelected && !$("#agentPanel").classList.contains("hidden");
-  $("#agentDirtyCount").textContent = count === 0
+  $("#agentDirtyCount").textContent = invalid.length
+    ? `${count} unsaved change${count === 1 ? "" : "s"} · choose a saved model before saving`
+    : count === 0
     ? "No unsaved changes"
     : `${count} unsaved change${count === 1 ? "" : "s"}`;
   $("#agentDiscard").disabled = count === 0;
-  $("#agentSaveAll").disabled = count === 0;
-  $("#agentSave").disabled = count === 0;
+  $("#agentSaveAll").disabled = count === 0 || invalid.length > 0;
+  $("#agentSave").disabled = count === 0 || invalid.length > 0;
   $("#agentSaveAll").className = open ? "ar-btn" : "ar-btn ar-btn--primary";
   const seat = seatById(state.agentSelected);
   $("#agentSeatDirty").classList.toggle("hidden", !(seat && seatDirty(seat)));
@@ -2389,6 +2785,13 @@ function renderAgents() {
   const err = $("#agentError");
   err.classList.toggle("hidden", !state.agentError);
   $("#agentErrorText").textContent = state.agentError || "";
+  const invalidModels = invalidModelDrafts();
+  const modelConflict = $("#agentModelConflict");
+  modelConflict.classList.toggle("hidden", invalidModels.length === 0);
+  modelConflict.textContent = invalidModels.map((seat) => {
+    const issue = modelAssignmentIssue(seat, state.agentDraft[seat.id].model);
+    return `${seat.label}: ${issue}`;
+  }).join(" ");
   renderTable();
   refreshAgentWarnings();
   if (state.agentSelected && seatById(state.agentSelected)) {
@@ -2401,15 +2804,31 @@ function renderAgents() {
 async function loadAgents() {
   if (unsavedIds().length) return;
   state.agentError = "";
+  const loadGeneration = (state.agentLoadGeneration || 0) + 1;
+  state.agentLoadGeneration = loadGeneration;
   if (!state.agentDoc) {
     state.agentLoading = true;
     renderAgents();
   }
   try {
-    applyServer(await api("/api/agents"));
+    const payload = await api("/api/agents");
+    if (loadGeneration !== state.agentLoadGeneration) return;
+    if (unsavedIds().length) {
+      const savedRows = (state.agentDoc?.models || []).filter((row) => row.saved);
+      const incomingRows = payload.models || [];
+      const preserved = new Map(savedRows.map((row) => [row.id, row]));
+      incomingRows.forEach((row) => preserved.set(row.id, row));
+      state.agentDoc.models = [...preserved.values()];
+      state.agentDoc.saved_models = payload.saved_models || [];
+      state.agentDoc.catalog = payload.catalog || null;
+      renderAgents();
+      return;
+    }
+    applyServer(payload);
     state.agentLoading = false;
     renderAgents();
   } catch (e) {
+    if (loadGeneration !== state.agentLoadGeneration) return;
     state.agentLoading = false;
     state.agentError = e.message || "Could not load agents";
     renderAgents();
@@ -2420,7 +2839,7 @@ function collectAgents() {
   const seats = {};
   (state.agentDoc.seats || []).forEach((seat) => {
     const draft = state.agentDraft[seat.id];
-    const model = (draft.model || "").trim() || seat.default_model;
+    const model = (draft.model || "").trim() || seat.model;
     seats[seat.id] = {
       model,
       effort: draft.effort || null,
@@ -2433,8 +2852,27 @@ function collectAgents() {
 }
 
 async function persistAgents() {
-  const doc = await api("/api/agents", { method: "PUT", body: JSON.stringify(collectAgents()) });
+  let doc;
+  const submitted = collectAgents();
+  const draftAtSubmit = JSON.parse(JSON.stringify(state.agentDraft));
+  state.agentLoadGeneration = (state.agentLoadGeneration || 0) + 1;
+  try {
+    doc = await api("/api/agents", { method: "PUT", body: JSON.stringify(submitted) });
+  } catch (error) {
+    await loadModelCatalog(state.modelQuery).catch(() => {});
+    throw error;
+  }
+  const editedDuringSave = {};
+  Object.entries(state.agentDraft).forEach(([seatId, current]) => {
+    const before = draftAtSubmit[seatId];
+    if (!before) return;
+    const changed = Object.keys(current).filter((key) => JSON.stringify(current[key]) !== JSON.stringify(before[key]));
+    if (changed.length) editedDuringSave[seatId] = Object.fromEntries(changed.map((key) => [key, current[key]]));
+  });
   applyServer(doc);
+  Object.entries(editedDuringSave).forEach(([seatId, changes]) => {
+    if (state.agentDraft[seatId]) Object.assign(state.agentDraft[seatId], changes);
+  });
   renderAgents();
   const warns = doc.warnings || [];
   showToast(warns.length ? `Saved. ${warns.length} Opus warning${warns.length === 1 ? "" : "s"}.` : "Agent config saved.", warns.length ? "warn" : "ok");
@@ -2442,6 +2880,11 @@ async function persistAgents() {
 
 function requestSave() {
   if (!unsavedIds().length) return;
+  const invalid = invalidModelDrafts();
+  if (invalid.length) {
+    showToast(`${invalid[0].label}: ${modelAssignmentIssue(invalid[0], state.agentDraft[invalid[0].id].model)}`, "danger");
+    return;
+  }
   state.pendingRun = null;
   state.pendingTheme = null;
   state.pendingRemove = null;
@@ -2571,7 +3014,7 @@ $("#agentResize").addEventListener("pointerdown", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if (state.tab !== "agents") return;
+  if (state.tab !== "settings" || state.settingsSection !== "agents") return;
   if (document.querySelector("dialog[open]")) return;
   if (e.key === "Escape" && state.agentSelected) {
     e.preventDefault();
@@ -2593,10 +3036,22 @@ document.addEventListener("keydown", (e) => {
 /* ---------- boot ---------- */
 (async function boot() {
   syncChromeToggles();
-  try {
-    const res = await fetch("/api/session");
-    if (res.ok) state.token = (await res.json()).token;
-  } catch (_) { /* runs will 401 until a session token loads */ }
-  await loadHealth();
-  await setTab("portfolio");
+  const initialPage = pageForPath(location.pathname);
+  if (initialPage === "settings") state.settingsSection = sectionForPath(location.pathname);
+  state.tab = initialPage;
+  $$("#nav .ar-tab").forEach((link) => {
+    if (link.dataset.tab === initialPage) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
+  $$(".ar-page").forEach((page) => page.classList.toggle("hidden", page.id !== `tab-${initialPage}`));
+  if (initialPage === "settings") setSettingsSection(state.settingsSection);
+  sessionReady = (async () => {
+    try {
+      const res = await fetch("/api/session");
+      if (res.ok) state.token = (await res.json()).token;
+    } catch (_) { /* protected calls report the unavailable session */ }
+  })();
+  const healthReady = loadHealth();
+  await setTab(initialPage, { history: false });
+  await healthReady;
 })();

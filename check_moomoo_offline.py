@@ -94,6 +94,7 @@ def main() -> int:
 
     class Trade:
         closed = False
+        funds = (0, [{"cash": 999999, "us_cash": 42.5, "power": 999999}])
         def get_acc_list(self):
             return (0, [
                 {"acc_id": 1, "trd_env": "REAL", "acc_status": "ACTIVE", "trdmarket_auth": ["US"], "security_firm": "FUTUSG"},
@@ -110,7 +111,7 @@ def main() -> int:
             ])
         def accinfo_query(self, **kwargs):
             assert kwargs["currency"] == "USD" and kwargs["refresh_cache"]
-            return (0, [{"cash": 999999, "us_cash": 999999, "power": 999999}])
+            return self.funds
         def close(self):
             self.closed = True
 
@@ -126,12 +127,23 @@ def main() -> int:
     assert oauth_trade_client() is connected
     assert read_accounts(connected) == [{"id": "1", "type": "STOCK", "status": "ACTIVE"}]
     snap = read_snapshot(connected, "1")
-    assert snap["cash"] is None and snap["positions"][0]["security_type"] == "STK"
+    assert snap["cash"] == 42.5 and snap["positions"][0]["security_type"] == "STK"
     assert quote.closed
     assert not connected.closed
     classified = normalize_snapshot(snap)
     assert classified["can_apply"] and [p["ticker"] for p in classified["positions"]] == ["AAPL", "SPY"]
     assert len(classified["excluded"]) == 1
+    assert classified["cash"] == 42.5 and not classified["warnings"]
+
+    for usd_cash, expected in ((0, 0), (-25, -25), ("N/A", None), (float("nan"), None)):
+        connected.funds = (0, [{"cash": 999999, "us_cash": usd_cash, "power": 999999}])
+        refreshed = normalize_snapshot(read_snapshot(connected, "1"))
+        assert refreshed["can_apply"] and refreshed["cash"] == expected
+        assert bool(refreshed["warnings"]) == (expected is None)
+    for unavailable in ((-1, "funds unavailable"), (0, [{"cash": 99, "currency": "USD", "power": 999}])):
+        connected.funds = unavailable
+        refreshed = normalize_snapshot(read_snapshot(connected, "1"))
+        assert refreshed["can_apply"] and refreshed["cash"] is None and refreshed["warnings"]
 
     malformed = normalize_snapshot({"scope": "stocks_only", "complete": True, "fetched_at": "now",
                                     "positions": [{"code": "US.AAPL", "position_side": "LONG"}, None]})

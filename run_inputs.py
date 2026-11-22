@@ -44,7 +44,8 @@ def research_profile_paths(ta_root: Path) -> dict[str, Path]:
 
 
 def fingerprint(data_root: Path, ta_root: Path, config_paths: Mapping[str, Path], *,
-                include_research_profile: bool = False) -> dict:
+                include_research_profile: bool = False,
+                model_rate_inventory: list[dict] | None = None) -> dict:
     """Return stable content hashes for shared portfolio and model inputs.
 
     Only digests leave the process; input contents and credentials are never
@@ -63,9 +64,15 @@ def fingerprint(data_root: Path, ta_root: Path, config_paths: Mapping[str, Path]
         paths.update(research_profile_paths(ta_root))
     files = {}
     for name, path in sorted(paths.items()):
+        if name == "model_rates" and model_rate_inventory is not None:
+            continue
         try:
             files[name] = hashlib.sha256(path.read_bytes()).hexdigest()
         except FileNotFoundError:
             files[name] = None
+    if model_rate_inventory is not None:
+        canonical_rates = json.dumps(model_rate_inventory, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=False)
+        files["model_rates"] = hashlib.sha256(canonical_rates.encode("utf-8")).hexdigest()
     encoded = json.dumps(files, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return {"files": files, "sha256": hashlib.sha256(encoded).hexdigest()}

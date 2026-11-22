@@ -129,4 +129,30 @@ assert.match(unknownAccount, /—/);
 assert.doesNotMatch(unknownAccount, /null|\$0\.00/);
 assert.match(html, /id="pfAccountFilter"><option value="all">All accounts<\/option>/);
 
-console.log("argus broker UI offline check: ok (preview rendering, confirmation, account guard, legacy binding, null cash)");
+const weightsDefinition = app.match(/function renderWeightsChart\(data\)\s*\{[\s\S]*?\n\}/)?.[0];
+assert.ok(weightsDefinition);
+let destroyedCharts = 0;
+context.cssVar = (name) => name;
+context.Chart = class {
+  constructor(_canvas, config) { this.config = config; }
+  destroy() { destroyedCharts += 1; }
+};
+vm.runInNewContext(weightsDefinition, context);
+const allocation = {
+  positions: [{ ticker: "XYZ" }], weights: [{ ticker: "XYZ", weight_pct: null }],
+  cash: null, cash_pct: null, holdings_value_complete: true, targets: {},
+};
+context.renderWeightsChart(allocation);
+assert.equal(element("weightsChartPlot").classes.has("hidden"), true);
+assert.match(element("weightsChartNote").textContent, /verified USD cash/);
+context.renderWeightsChart({ ...allocation, targets: { XYZ: 100 } });
+assert.equal(context.state.chart.config.data.datasets.length, 1);
+assert.equal(context.state.chart.config.data.datasets[0].label, "Approved target %");
+context.renderWeightsChart({
+  ...allocation, cash: 40, cash_pct: 20, weights: [{ ticker: "XYZ", weight_pct: 80 }],
+});
+assert.equal(destroyedCharts, 1);
+assert.equal(element("weightsChartNote").classes.has("hidden"), true);
+assert.equal(context.state.chart.config.data.datasets[0].data.join(","), "80,20");
+
+console.log("argus broker UI offline check: ok (preview rendering, confirmation, account guard, legacy binding, cash and allocation)");

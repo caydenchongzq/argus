@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -56,6 +56,12 @@ RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
 RATING_RE = re.compile(r"(?im)^-\s*Rating:\s*(.+?)\s*$")
 REPORT_DIR_RE = re.compile(r"^(.+)_(\d{8})_(\d{6})$")
+LEGACY_AGENT_MODELS = (
+    "openai/gpt-6.1-sol", "openai/gpt-6-luna", "anthropic/claude-opus-5.5",
+    "deepseek/deepseek-v4.1-flash-1017", "moonshotai/kimi-k3", "moonshotai/kimi-k3.1-pro",
+    "google/gemini-4-argon", "openai/gpt-6.1-terra", "openai/gpt-6-astra",
+)
+_MODEL_REFRESH_LOCK = threading.Lock()
 
 app = FastAPI(title="Argus", docs_url=None, redoc_url=None)
 
@@ -597,6 +603,11 @@ class AgentConfigIn(BaseModel):
     unlock: list[str] = Field(default_factory=list)
 
 
+class AgentModelMembershipIn(BaseModel):
+    id: str = Field(min_length=1, max_length=240)
+    saved: bool
+
+
 class DashboardSettingsIn(BaseModel):
     weekly_budget_enabled: bool = False
     weekly_budget_usd: float = Field(ge=0, le=1_000_000)
@@ -769,8 +780,18 @@ def settings_save(body: DashboardSettingsIn, request: Request):
 
 @app.get("/api/agents")
 def agents_view():
+    return _agents_payload()
+
+
+def _agents_payload() -> dict:
     try:
-        return agent_config.public_payload()
+        snapshot = _catalog_snapshot()
+        payload = agent_config.public_payload(snapshot=snapshot)
+        saved = _saved_agent_models(snapshot)
+        payload["models"] = _available_agent_model_rows(payload, saved, snapshot)
+        payload["saved_models"] = saved
+        payload["catalog"] = _model_catalog_status(snapshot)
+        return payload
     except agent_config.AgentConfigError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -782,9 +803,239 @@ def agents_save(body: AgentConfigIn, request: Request):
     payload = {"unlock": body.unlock, "seats": {k: v.model_dump() for k, v in body.seats.items()}}
     try:
         with _data_write_lock():
-            return agent_config.validate_and_save(payload)
+            _validate_agent_assignments(payload)
+            agent_config.validate_and_save(payload)
+            return _agents_payload()
     except agent_config.AgentConfigError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+def _model_inventory_module():
+    try:
+        import model_inventory
+        return model_inventory
+    except ImportError:
+        return None
+
+
+def _catalog_snapshot() -> dict:
+    module = _model_inventory_module()
+    if module is not None:
+        return module.load_snapshot()
+    return agent_config.load_models()
+
+
+def _catalog_rows(snapshot: dict | None = None) -> list[dict]:
+    data = snapshot if snapshot is not None else _catalog_snapshot()
+    rows = data.get("models") or []
+    return [row for row in rows if isinstance(row, dict) and isinstance(row.get("id"), str)]
+
+
+def _model_membership_path() -> Path:
+    return DATA / "agent_models.json"
+
+
+def _model_ids(values) -> list[str]:
+    return sorted({str(value) for value in values if isinstance(value, str) and value.strip()})
+
+
+def _legacy_agent_model_ids(snapshot: dict | None = None) -> list[str]:
+    ids = set(LEGACY_AGENT_MODELS)
+    try:
+        for seat in agent_config.public_payload(snapshot=snapshot).get("seats") or []:
+            value = seat.get("model")
+            if isinstance(value, str) and value:
+                ids.add(value)
+    except agent_config.AgentConfigError:
+        pass
+    return sorted(ids)
+
+
+def _saved_agent_models(snapshot: dict | None = None) -> list[str]:
+    path = _model_membership_path()
+    if path.is_file():
+        value = _read_json(path)
+        if not isinstance(value, dict) or value.get("schema_version") != 1 or not isinstance(value.get("models"), list):
+            raise HTTPException(500, "Saved model list is invalid")
+        return _model_ids(value["models"])
+    return _legacy_agent_model_ids(snapshot)
+
+
+def _model_catalog_status(snapshot: dict | None = None) -> dict:
+    data = snapshot if snapshot is not None else _catalog_snapshot()
+    return {key: data.get(key) for key in ("source", "fetched_at", "stale", "unavailable", "pricing_note")} | {
+        "refreshing": _MODEL_REFRESH_LOCK.locked()
+    }
+
+
+def _placeholder_model(model_id: str, seat_ids: list[str]) -> dict:
+    return {"id": model_id, "label": model_id, "availability": "unavailable",
+            "usd_per_mtok_in": None, "usd_per_mtok_out": None, "compatible_seats": seat_ids,
+            "compatibility_unknown": True}
+
+
+def _available_agent_model_rows(payload: dict, saved: list[str], snapshot: dict | None = None) -> list[dict]:
+    rows = {row["id"]: dict(row) for row in _catalog_rows(snapshot)}
+    seats = payload.get("seats") or []
+    assigned: dict[str, list[str]] = {}
+    for seat in seats:
+        seat_id = str(seat.get("id") or "")
+        value = seat.get("model")
+        if isinstance(value, str):
+            assigned.setdefault(value, []).append(seat_id)
+    selected = set(saved) | set(assigned)
+    seat_labels = {str(seat.get("id") or ""): str(seat.get("label") or seat.get("id") or "")
+                   for seat in seats}
+    out = []
+    module = _model_inventory_module()
+    for model_id in sorted(selected):
+        row = rows.get(model_id) or _placeholder_model(model_id, assigned.get(model_id, []))
+        if module is not None and "compatible_seats" not in row:
+            try:
+                row["compatible_seats"] = module.compatible_seats(row)
+            except Exception:
+                row["compatible_seats"] = []
+                row["compatibility_unknown"] = True
+        row["saved"] = model_id in saved
+        row["assigned_seats"] = [seat_labels.get(seat_id, seat_id) for seat_id in assigned.get(model_id, [])]
+        _model_row_for_ui(row)
+        out.append(row)
+    return out
+
+
+def _model_row_for_ui(row: dict) -> dict:
+    row.setdefault("availability", "available" if row.get("available") is not False else "unavailable")
+    row.setdefault("is_preview", bool(row.get("preview")))
+    row.setdefault("tiers", [{**tier, "prompt_tokens": tier.get("min_prompt_tokens")}
+                              for tier in row.get("price_tiers", []) if isinstance(tier, dict)])
+    return row
+
+
+def _validate_agent_assignments(payload: dict) -> None:
+    snapshot = _catalog_snapshot()
+    current = agent_config.public_payload(snapshot=snapshot)
+    current_by_id = {seat["id"]: seat for seat in current.get("seats") or []}
+    saved = set(_saved_agent_models(snapshot))
+    catalog = {row["id"]: row for row in _catalog_rows(snapshot)}
+    module = _model_inventory_module()
+    incoming_seats = payload["seats"]
+    for seat_id, seat in current_by_id.items():
+        if seat_id not in incoming_seats and seat.get("default_model") not in saved:
+            # A partial save would otherwise drop the override and restore the retired model.
+            incoming_seats[seat_id] = {key: seat.get(key) for key in (
+                "model", "effort", "temperature", "max_tokens", "system",
+            )}
+    for seat_id, incoming in incoming_seats.items():
+        seat = current_by_id.get(seat_id)
+        if seat is None:
+            continue  # The config writer reports unknown seat IDs.
+        prior = seat.get("model")
+        model_id = incoming["model"].strip() or prior
+        incoming["model"] = model_id
+        if model_id == prior:
+            continue
+        if model_id not in saved:
+            raise HTTPException(409, f"Add {model_id} to Settings → Models before assigning it")
+        row = catalog.get(model_id)
+        if row is None or module is None:
+            raise HTTPException(400, f"{model_id} is unavailable in the OpenRouter catalog and cannot be newly assigned")
+        try:
+            compatible = module.compatible_seats(row)
+        except Exception:
+            compatible = []
+        if not compatible or seat_id not in compatible:
+            raise HTTPException(400, f"{model_id} is not compatible with {seat_id}")
+
+
+@app.get("/api/models")
+def models_view(q: str = Query(default="", max_length=200)):
+    snapshot = _catalog_snapshot()
+    payload = agent_config.public_payload(snapshot=snapshot)
+    saved = _saved_agent_models(snapshot)
+    rows = [dict(row) for row in _catalog_rows(snapshot)]
+    module = _model_inventory_module()
+    seats = payload.get("seats") or []
+    assigned: dict[str, list[str]] = {}
+    seat_labels = {str(seat.get("id") or ""): str(seat.get("label") or seat.get("id") or "")
+                   for seat in seats}
+    for seat in seats:
+        seat_id = str(seat.get("id") or "")
+        if seat.get("model"):
+            assigned.setdefault(seat["model"], []).append(seat_labels.get(seat_id, seat_id))
+    for row in rows:
+        row["saved"] = row.get("id") in saved
+        row.setdefault("assigned_seats", assigned.get(row.get("id"), []))
+    needle = q.strip().casefold()
+    matches = [row for row in rows if needle and needle in " ".join(
+        str(row.get(key) or "") for key in ("id", "label", "name", "publisher", "description")
+    ).casefold()]
+    matches.sort(key=lambda row: (str(row.get("label") or row["id"]).casefold(), row["id"]))
+    matches = matches[:100]
+    for row in matches:
+        if "compatible_seats" not in row and module is not None:
+            try:
+                row["compatible_seats"] = module.compatible_seats(row)
+            except Exception:
+                row["compatible_seats"] = []
+                row["compatibility_unknown"] = True
+        _model_row_for_ui(row)
+    saved_rows = [row for row in _available_agent_model_rows(payload, saved, snapshot)]
+    return {"results": matches[:100], "saved_models": saved, "saved_rows": saved_rows,
+            **_model_catalog_status(snapshot)}
+
+
+@app.post("/api/models/refresh")
+def models_refresh(request: Request):
+    _require_confirm_token(request)
+    module = _model_inventory_module()
+    if module is None or not hasattr(module, "refresh"):
+        raise HTTPException(503, "OpenRouter model refresh is unavailable")
+    try:
+        with _MODEL_REFRESH_LOCK, module.refresh_guard():
+            candidate = module.fetch_openrouter()
+            with _data_write_lock():
+                module.write_snapshot(agent_config.models_path(), candidate)
+        status = _model_catalog_status(candidate)
+        status["refreshing"] = False
+        return {"ok": True, **status}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        snapshot = _catalog_snapshot()
+        message = str(exc)
+        return JSONResponse({"ok": False, "detail": message, "error": message,
+                             **_model_catalog_status(snapshot)}, status_code=502)
+
+
+@app.put("/api/models")
+def models_membership_save(body: AgentModelMembershipIn, request: Request):
+    _require_confirm_token(request)
+    module = _model_inventory_module()
+    try:
+        with _data_write_lock():
+            snapshot = _catalog_snapshot()
+            current = _saved_agent_models(snapshot)
+            known = {row["id"]: row for row in _catalog_rows(snapshot)}
+            if body.id not in known and body.id not in current:
+                raise HTTPException(404, "Model is not present in the cached OpenRouter catalog")
+            if body.saved:
+                if body.id not in current:
+                    if module is not None and known:
+                        compatible = module.compatible_seats(known[body.id])
+                        if not compatible:
+                            raise HTTPException(400, "Model is not compatible with an Argus agent workflow")
+                    current.append(body.id)
+            else:
+                payload = agent_config.public_payload(snapshot=snapshot)
+                assigned = [seat for seat in payload.get("seats") or [] if seat.get("model") == body.id]
+                if assigned:
+                    labels = ", ".join(str(seat.get("label") or seat.get("id")) for seat in assigned)
+                    raise HTTPException(409, f"Reassign {labels} before removing this model.")
+                current = [model_id for model_id in current if model_id != body.id]
+            _write_json(_model_membership_path(), {"schema_version": 1, "models": sorted(set(current))})
+        return {"ok": True, "saved_models": _saved_agent_models(snapshot)}
+    except HTTPException:
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -1650,7 +1901,7 @@ def moomoo_preview(body: TigerPreviewRequest, request: Request):
     account_snapshot = {
         "account_id": account_identity("moomoo", account["id"]),
         "broker": "moomoo_sg", "label": account["label"], "scope": "US_STOCKS",
-        "currency": "USD", "cash": None, "available_cash": None,
+        "currency": normalized["currency"], "cash": normalized["cash"], "available_cash": None,
         "fetched_at": normalized["fetched_at"], "positions": normalized["positions"],
     }
     normalized["account"] = account_snapshot
@@ -1666,7 +1917,7 @@ def moomoo_preview(body: TigerPreviewRequest, request: Request):
             "account_key": body.account_key, "account_label": account["label"],
             "scope": normalized["scope"], "fetched_at": normalized["fetched_at"],
             "currency": "USD", "position_count": normalized["position_count"],
-            "positions": normalized["positions"], "cash": None,
+            "positions": normalized["positions"], "cash": normalized["cash"],
             "rejected": normalized["rejected"], "excluded": normalized["excluded"],
             "warnings": normalized["warnings"], "issues": normalized["issues"],
             "can_apply": normalized["can_apply"], "account_id": account_snapshot["account_id"],
@@ -2172,7 +2423,8 @@ def _build_scout_manifest(body: ScoutRequest) -> dict:
     if body.include_llm and body.mode != "weekly":
         raise HTTPException(400, "A paid scout call is available only in weekly mode")
     sectors = _validate_scout_sectors(body.sectors or list(SCOUT_SECTOR_LABELS)[:MAX_SCOUT_SECTORS])
-    seat_payload = agent_config.public_payload()
+    model_snapshot = _catalog_snapshot()
+    seat_payload = agent_config.public_payload(snapshot=model_snapshot)
     scout_seat = next((seat for seat in seat_payload.get("seats", []) if seat.get("id") == "theme_scout"), None)
     if body.include_llm and scout_seat is None:
         raise HTTPException(409, "Theme scout model configuration is unavailable")
@@ -2184,7 +2436,9 @@ def _build_scout_manifest(body: ScoutRequest) -> dict:
             effective_trade_policy = parse_trade_policy(targets)
         except (ImportError, ValueError) as exc:
             raise HTTPException(400, f"Trade policy is invalid: {exc}") from exc
-    input_fingerprint = _execution_input_fingerprint()
+    input_fingerprint = _execution_input_fingerprint(
+        model_ids=[scout_seat.get("model")] if body.include_llm and scout_seat else [],
+        snapshot=model_snapshot)
     book = _read_json(BOOK) if BOOK.is_file() else {"positions": []}
     holdings = list(dict.fromkeys(str(row.get("ticker") or "").upper()
                                   for row in book.get("positions") or [] if row.get("ticker")))
@@ -2208,7 +2462,7 @@ def _build_scout_manifest(body: ScoutRequest) -> dict:
         "single_call": bool(body.include_llm and body.single_call),
         "model": ({key: scout_seat.get(key) for key in
                    ("id", "label", "model", "effort", "max_tokens", "temperature", "est_cost_usd")}
-                  if scout_seat else None),
+                  if body.include_llm and scout_seat else None),
         "retry_policy": "zero automatic retries" if body.include_llm and body.single_call else "configured runtime retry policy",
         "model_scope": {
             "holdings": holdings,
@@ -2254,15 +2508,28 @@ def _build_scout_manifest(body: ScoutRequest) -> dict:
     return {"manifest": manifest, "manifest_sha256": digest}
 
 
-def _execution_input_fingerprint(*, include_research_profile: bool = False) -> dict:
+def _execution_input_fingerprint(*, include_research_profile: bool = False,
+                                 model_ids: list[str] | None = None,
+                                 snapshot: dict | None = None) -> dict:
     config_paths = {
         "agent_config": Path(agent_config.config_path()),
         "model_rates": Path(agent_config.models_path()),
         "argus_runner": RUNNER,
         "argus_run_inputs": ROOT / "run_inputs.py",
     }
+    rate_inventory = _effective_model_rates(model_ids or [], snapshot=snapshot)
     return _fingerprint_run_inputs(DATA, TA_ROOT, config_paths,
-                                   include_research_profile=include_research_profile)
+                                   include_research_profile=include_research_profile,
+                                   model_rate_inventory=rate_inventory)
+
+
+def _effective_model_rates(model_ids: list[str], snapshot: dict | None = None) -> list[dict]:
+    module = _model_inventory_module()
+    if module is not None and hasattr(module, "effective_rates"):
+        return module.effective_rates(model_ids, snapshot=snapshot if snapshot is not None else _catalog_snapshot())
+    wanted = set(model_ids)
+    return [{key: row.get(key) for key in ("id", "usd_per_mtok_in", "usd_per_mtok_out")}
+            for row in _catalog_rows() if row.get("id") in wanted]
 
 
 @app.post("/api/theme-scout/manifest")
@@ -2314,7 +2581,8 @@ def _build_run_manifest(body: RunRequest) -> dict:
         analysis_tickers = []
 
     portfolio_tickers = holdings + candidates
-    seat_payload = agent_config.public_payload()
+    model_snapshot = _catalog_snapshot()
+    seat_payload = agent_config.public_payload(snapshot=model_snapshot)
     safe_fields = ("id", "label", "pipeline", "model", "max_tokens", "est_input_tokens", "est_output_tokens", "est_cost_usd")
     all_seats = [{**{key: seat.get(key) for key in safe_fields},
                   "max_tokens_setting": seat.get("max_tokens") if seat.get("max_tokens") is not None
@@ -2391,9 +2659,14 @@ def _build_run_manifest(body: RunRequest) -> dict:
             status = "unknown" if age is None else "future" if age < 0 else "current" if age == 0 else "reused" if age <= 7 else "stale"
         report_sources[ticker] = {"status": status, "analysis_date": source_date,
                                   "report_dir": folder.name}
-    price_models = [{key: row.get(key) for key in ("id", "label", "usd_per_mtok_in", "usd_per_mtok_out")}
-                    for row in seat_payload.get("models") or []]
-    input_fingerprint = _execution_input_fingerprint(include_research_profile=bool(analysis_tickers))
+    paid_seats = (native_seats if analysis_tickers else [])
+    if include_rev:
+        paid_seats += list(fund_seats_by_id.values())
+    model_ids = list(dict.fromkeys(str(seat.get("model")) for seat in paid_seats if seat.get("model")))
+    price_models = _effective_model_rates(model_ids, snapshot=model_snapshot)
+    input_fingerprint = _execution_input_fingerprint(
+        include_research_profile=bool(analysis_tickers), model_ids=model_ids,
+        snapshot=model_snapshot)
     research_sources = research_profile_paths(TA_ROOT) if analysis_tickers else {}
     manifest = {
         "mode": mode,
@@ -2523,8 +2796,22 @@ def runs_start(body: RunRequest, request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/")
+@app.get("/portfolio")
+@app.get("/watchlist")
+@app.get("/reports")
+@app.get("/fund")
+@app.get("/themes")
+@app.get("/runs")
+@app.get("/settings")
+@app.get("/settings/models")
+@app.get("/settings/watchlist")
 def index():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/agents")
+def agents_legacy_route():
+    return RedirectResponse("/settings", status_code=307)
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")

@@ -46,9 +46,10 @@ assert.ok(handoffStart >= 0 && handoffEnd > handoffStart, "watchlist refresh han
 assert.ok(startFunction >= 0 && startHandlerEnd > startFunction, "run draft Start handler should exist");
 
 const manifestCalls = [];
+let navigationGeneration = 0;
 const context = {
-  $, $$, state, RunDraft, runDraftPreviewGeneration: 0,
-  async setTab(name) { tick.push(name); state.tab = name; },
+  $, $$, state, RunDraft, runDraftPreviewGeneration: 0, pageNavigationGeneration: 0,
+  async setTab(name) { tick.push(name); state.tab = name; navigationGeneration += 1; context.pageNavigationGeneration = navigationGeneration; },
   runEligibility() { return { holdings: [], candidates: ["AAPL"], groups: { AAPL: "candidate" } }; },
   renderRunTickerLists() {},
   renderRunComposer() {},
